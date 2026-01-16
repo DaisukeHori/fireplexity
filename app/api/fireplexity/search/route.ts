@@ -1,56 +1,71 @@
 import { NextResponse } from 'next/server'
 import { createGroq } from '@ai-sdk/groq'
+import { createOpenAI } from '@ai-sdk/openai'
 import { streamText, generateText, createUIMessageStream, createUIMessageStreamResponse, convertToModelMessages } from 'ai'
 import type { ModelMessage } from 'ai'
 import { detectCompanyTicker } from '@/lib/company-ticker-map'
 import { selectRelevantContent } from '@/lib/content-selection'
+import { integratedSearch } from '@/lib/scraper'
+
+// AIプロバイダーの型定義
+type AIProvider = 'groq' | 'openai'
 
 export async function POST(request: Request) {
-  const requestId = Math.random().toString(36).substring(7)
-  
   try {
     const body = await request.json()
     const messages = body.messages || []
-    
-    // Extract query from v5 message structure (messages have parts array)
+
+    // v5メッセージ構造からクエリを抽出
     let query = body.query
     if (!query && messages.length > 0) {
       const lastMessage = messages[messages.length - 1]
       if (lastMessage.parts) {
-        // v5 structure
         const textParts = lastMessage.parts.filter((p: any) => p.type === 'text')
         query = textParts.map((p: any) => p.text).join(' ')
       } else if (lastMessage.content) {
-        // Fallback for v4 structure
         query = lastMessage.content
       }
     }
 
     if (!query) {
-      return NextResponse.json({ error: 'Query is required' }, { status: 400 })
+      return NextResponse.json({ error: 'クエリが必要です' }, { status: 400 })
     }
 
-    // Use API key from request body if provided, otherwise fall back to environment variable
-    const firecrawlApiKey = body.firecrawlApiKey || process.env.FIRECRAWL_API_KEY
+    // APIキーを取得
     const groqApiKey = process.env.GROQ_API_KEY
-    
-    if (!firecrawlApiKey) {
-      return NextResponse.json({ error: 'Firecrawl API key not configured' }, { status: 500 })
-    }
-    
-    if (!groqApiKey) {
-      return NextResponse.json({ error: 'Groq API key not configured' }, { status: 500 })
+    const openaiApiKey = body.openaiApiKey || process.env.OPENAI_API_KEY
+
+    // プロバイダーの選択（デフォルトはopenai、なければgroq）
+    const provider: AIProvider = body.provider || (openaiApiKey ? 'openai' : 'groq')
+
+    // プロバイダーに応じたAPIキーチェック
+    if (provider === 'groq' && !groqApiKey) {
+      return NextResponse.json({ error: 'Groq APIキーが設定されていません。環境変数GROQ_API_KEYを設定してください。' }, { status: 500 })
     }
 
-    // Configure Groq with the OSS 120B model
-    const groq = createGroq({
-      apiKey: groqApiKey
-    })
+    if (provider === 'openai' && !openaiApiKey) {
+      return NextResponse.json({ error: 'OpenAI APIキーが設定されていません。環境変数OPENAI_API_KEYを設定してください。' }, { status: 500 })
+    }
 
-    // Always perform a fresh search for each query to ensure relevant results
+    // プロバイダーに応じたAIクライアントを設定
+    const groq = groqApiKey ? createGroq({ apiKey: groqApiKey }) : null
+    const openai = openaiApiKey ? createOpenAI({ apiKey: openaiApiKey }) : null
+
+    // 使用するモデルを選択
+    const model = provider === 'openai' && openai
+      ? openai('gpt-4o-mini')
+      : groq
+        ? groq('llama-3.3-70b-versatile')
+        : null
+
+    if (!model) {
+      return NextResponse.json({ error: '利用可能なAIプロバイダーがありません' }, { status: 500 })
+    }
+
+    // フォローアップかどうかを判定
     const isFollowUp = messages.length > 2
-    
-    // Create a UIMessage stream with custom data parts
+
+    // UIMessageストリームを作成
     const stream = createUIMessageStream({
       originalMessages: messages,
       execute: async ({ writer }) => {
@@ -61,8 +76,6 @@ export async function POST(request: Request) {
             description?: string
             content?: string
             markdown?: string
-            publishedDate?: string
-            author?: string
             image?: string
             favicon?: string
             siteName?: string
@@ -82,101 +95,65 @@ export async function POST(request: Request) {
             source?: string
             width?: number
             height?: number
-            position?: number
           }> = []
           let context = ''
-          
-          // Send status updates as transient data parts
+
+          // ステータス更新を送信
           writer.write({
             type: 'data-status',
             id: 'status-1',
-            data: { message: 'Starting search...' },
+            data: { message: '検索を開始しています...' },
             transient: true
           })
-          
+
           writer.write({
             type: 'data-status',
             id: 'status-2',
-            data: { message: 'Searching for relevant sources...' },
+            data: { message: 'ウェブを検索中...' },
             transient: true
           })
-          
-          // Make direct API call to Firecrawl v2 search endpoint
-          const searchResponse = await fetch('https://api.firecrawl.dev/v2/search', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${firecrawlApiKey}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              query: query,
-              sources: ['web', 'news', 'images'],
-              limit: 6,
-              scrapeOptions: {
-                formats: ['markdown'],
-                onlyMainContent: true,
-                maxAge: 86400000  // 24 hours in milliseconds
-              }
-            })
+
+          // 内蔵検索エンジンを使用（Firecrawl不要）
+          const searchResult = await integratedSearch(query, {
+            numResults: 6,
+            includeNews: true,
+            includeImages: true,
+            scrapeContent: true,
           })
 
-          if (!searchResponse.ok) {
-            const errorData = await searchResponse.json()
-            throw new Error(`Firecrawl API error: ${errorData.error || searchResponse.statusText}`)
-          }
+          // Web検索結果を変換
+          sources = searchResult.web.map((item) => ({
+            url: item.url,
+            title: item.title,
+            description: item.description,
+            content: item.content,
+            markdown: item.markdown,
+            favicon: item.favicon,
+            image: item.image,
+            siteName: item.siteName,
+          }))
 
-          const searchResult = await searchResponse.json()
-          const searchData = searchResult.data || {}
-          
-          // Extract results from the v2 SDK response
-          const webResults = searchData.web || []
-          const newsData = searchData.news || []
-          const imagesData = searchData.images || []
-          
-          // Transform web sources metadata
-          sources = webResults.map((item: any) => {
-            return {
-              url: item.url,
-              title: item.title || item.url,
-              description: item.description || item.snippet,
-              content: item.content,
-              markdown: item.markdown,
-              favicon: item.favicon,
-              image: item.ogImage || item.image || item.metadata?.ogImage,  // Add ogImage support
-              siteName: new URL(item.url).hostname
-            };
-          }).filter((item: any) => item.url) || []
+          // ニュース結果を変換
+          newsResults = searchResult.news.map((item) => ({
+            url: item.url,
+            title: item.title,
+            description: item.description,
+            publishedDate: item.date,
+            source: item.source,
+            image: item.imageUrl,
+          }))
 
-          // Transform news results - now with correct schema
-          newsResults = newsData.map((item: any) => {
-            return {
-              url: item.url,
-              title: item.title,
-              description: item.snippet || item.description,
-              publishedDate: item.date,  // Direct API returns 'date' field
-              source: item.source || (item.url ? new URL(item.url).hostname : undefined),
-              image: item.imageUrl  // Direct API returns 'imageUrl' for news thumbnails
-            };
-          }).filter((item: any) => item.url) || []
+          // 画像結果を変換
+          imageResults = searchResult.images.map((item) => ({
+            url: item.url,
+            title: item.title,
+            thumbnail: item.imageUrl,
+            source: item.source,
+            width: item.width,
+            height: item.height,
+          }))
 
-          // Transform image results - now with correct schema from direct API
-          imageResults = imagesData.map((item: any) => {
-            // Verify we have the required fields
-            if (!item.url || !item.imageUrl) {
-              return null;
-            }
-            return {
-              url: item.url,
-              title: item.title || 'Untitled',
-              thumbnail: item.imageUrl,  // Direct API returns 'imageUrl' field
-              source: item.url ? new URL(item.url).hostname : undefined,
-              width: item.imageWidth,
-              height: item.imageHeight,
-              position: item.position
-            };
-          }).filter(Boolean) || []  // Filter out null entries
-          
-          // Send all sources as a persistent data part
+          // ソースをデータパートとして送信
           writer.write({
             type: 'data-sources',
             id: 'sources-1',
@@ -186,19 +163,19 @@ export async function POST(request: Request) {
               imageResults
             }
           })
-          
-          // Small delay to ensure sources render first
+
+          // ソースが表示されるまで少し待機
           await new Promise(resolve => setTimeout(resolve, 300))
-          
-          // Update status
+
+          // ステータス更新
           writer.write({
             type: 'data-status',
             id: 'status-3',
-            data: { message: 'Analyzing sources and generating answer...' },
+            data: { message: 'ソースを分析して回答を生成中...' },
             transient: true
           })
-          
-          // Detect if query is about a company
+
+          // 企業名から株価ティッカーを検出
           const ticker = detectCompanyTicker(query)
           if (ticker) {
             writer.write({
@@ -207,175 +184,160 @@ export async function POST(request: Request) {
               data: { symbol: ticker }
             })
           }
-          
-          // Prepare context from sources with intelligent content selection
+
+          // ソースからコンテキストを準備
           context = sources
-            .map((source: { title: string; markdown?: string; content?: string; url: string }, index: number) => {
-              const content = source.markdown || source.content || ''
+            .map((source, index) => {
+              const content = source.markdown || source.content || source.description || ''
               const relevantContent = selectRelevantContent(content, query, 2000)
               return `[${index + 1}] ${source.title}\nURL: ${source.url}\n${relevantContent}`
             })
             .join('\n\n---\n\n')
 
-          
-          // Prepare messages for the AI
+          // AIへのメッセージを準備
           let aiMessages: ModelMessage[] = []
-          
+
           if (!isFollowUp) {
-            // Initial query with sources
+            // 初回クエリ
             aiMessages = [
               {
                 role: 'system',
-                content: `You are a friendly assistant that helps users find information.
+                content: `あなたは情報検索を手助けする親切なアシスタントです。
 
-                CRITICAL FORMATTING RULE:
-                - NEVER use LaTeX/math syntax ($...$) for regular numbers in your response
-                - Write ALL numbers as plain text: "1 million" NOT "$1$ million", "50%" NOT "$50\\%$"
-                - Only use math syntax for actual mathematical equations if absolutely necessary
-                
-                RESPONSE STYLE:
-                - For greetings (hi, hello), respond warmly and ask how you can help
-                - For simple questions, give direct, concise answers
-                - For complex topics, provide detailed explanations only when needed
-                - Match the user's energy level - be brief if they're brief
-                
-                FORMAT:
-                - Use markdown for readability when appropriate
-                - Keep responses natural and conversational
-                - Include citations inline as [1], [2], etc. when referencing specific sources
-                - Citations should correspond to the source order (first source = [1], second = [2], etc.)
-                - Use the format [1] not CITATION_1 or any other format`
+                重要なフォーマットルール:
+                - 通常の数字にLaTeX/数式構文（$...$）を使わないでください
+                - すべての数字はプレーンテキストで書いてください: "100万円" であり "$100万$ 円" ではありません
+                - 数式構文は本当に必要な数学の方程式にのみ使用してください
+
+                回答スタイル:
+                - 挨拶（こんにちは、など）には温かく応答し、どのようにお手伝いできるか尋ねてください
+                - シンプルな質問には、直接的で簡潔な回答をしてください
+                - 複雑なトピックには、必要な場合にのみ詳細な説明を提供してください
+                - ユーザーのエネルギーレベルに合わせてください - 短い質問には短く
+
+                フォーマット:
+                - 読みやすさのために適切なマークダウンを使用してください
+                - 自然で会話的な回答を心がけてください
+                - 特定のソースを参照する場合は[1]、[2]などの引用を含めてください
+                - 引用はソースの順序に対応させてください（最初のソース = [1]、2番目 = [2]など）
+                - 日本語で回答してください`
               },
               {
                 role: 'user',
-                content: `Answer this query: "${query}"\n\nBased on these sources:\n${context}`
+                content: `このクエリに答えてください: "${query}"\n\n以下のソースに基づいて:\n${context}`
               }
             ]
           } else {
-            // Follow-up question - still use fresh sources from the new search
+            // フォローアップ質問
             aiMessages = [
               {
                 role: 'system',
-                content: `You are a friendly assistant continuing our conversation.
+                content: `あなたは会話を続ける親切なアシスタントです。
 
-                CRITICAL FORMATTING RULE:
-                - NEVER use LaTeX/math syntax ($...$) for regular numbers in your response
-                - Write ALL numbers as plain text: "1 million" NOT "$1$ million", "50%" NOT "$50\\%$"
-                - Only use math syntax for actual mathematical equations if absolutely necessary
-                
-                REMEMBER:
-                - Keep the same conversational tone from before
-                - Build on previous context naturally
-                - Match the user's communication style
-                - Use markdown when it helps clarity
-                - Include citations inline as [1], [2], etc. when referencing specific sources
-                - Citations should correspond to the source order (first source = [1], second = [2], etc.)
-                - Use the format [1] not CITATION_1 or any other format`
+                重要なフォーマットルール:
+                - 通常の数字にLaTeX/数式構文（$...$）を使わないでください
+                - すべての数字はプレーンテキストで書いてください
+
+                注意事項:
+                - 以前と同じ会話のトーンを維持してください
+                - 以前の文脈を自然に活用してください
+                - ユーザーのコミュニケーションスタイルに合わせてください
+                - 明確さを助けるためにマークダウンを使用してください
+                - [1]、[2]などの引用を含めてください
+                - 日本語で回答してください`
               },
-              // Include conversation context - convert UIMessages to ModelMessages
               ...convertToModelMessages(messages.slice(0, -1)),
-              // Add the current query with the fresh sources
               {
                 role: 'user',
-                content: `Answer this query: "${query}"\n\nBased on these sources:\n${context}`
+                content: `このクエリに答えてください: "${query}"\n\n以下のソースに基づいて:\n${context}`
               }
             ]
           }
-          
-          // Stream the text generation using Groq's Kimi K2 Instruct model
+
+          // ストリーミングでテキスト生成
           const result = streamText({
-            model: groq('moonshotai/kimi-k2-instruct'),
+            model: model as any,
             messages: aiMessages,
             temperature: 0.7,
             maxRetries: 2
           })
-          
-          // Merge the AI stream into our UIMessage stream
+
+          // AIストリームをUIMessageストリームにマージ
           writer.merge(result.toUIMessageStream())
-          
-          // Get the full answer for follow-up generation
+
+          // フォローアップ質問生成のために完全な回答を取得
           const fullAnswer = await result.text
-          
-          // Generate follow-up questions
-          const conversationPreview = isFollowUp 
-            ? messages.map((m: { role: string; parts?: any[] }) => {
-                const content = m.parts 
-                  ? m.parts.filter((p: any) => p.type === 'text').map((p: any) => p.text).join(' ')
-                  : ''
-                return `${m.role}: ${content}`
-              }).join('\n\n')
-            : `user: ${query}`
-            
+
+          // フォローアップ質問を生成
           try {
             const followUpResponse = await generateText({
-              model: groq('moonshotai/kimi-k2-instruct'),
+              model: model as any,
               messages: [
                 {
                   role: 'system',
-                  content: `Generate 5 natural follow-up questions based on the query and answer.\n                \n                ONLY generate questions if the query warrants them:\n                - Skip for simple greetings or basic acknowledgments\n                - Create questions that feel natural, not forced\n                - Make them genuinely helpful, not just filler\n                - Focus on the topic and sources available\n                \n                If the query doesn't need follow-ups, return an empty response.
-                  ${isFollowUp ? 'Consider the full conversation history and avoid repeating previous questions.' : ''}
-                  Return only the questions, one per line, no numbering or bullets.`
+                  content: `クエリと回答に基づいて、5つの自然なフォローアップ質問を生成してください。
+
+                  以下の場合のみ質問を生成してください:
+                  - 単純な挨拶や基本的な確認ではない
+                  - 自然で、無理のない質問
+                  - 本当に役立つ質問で、埋め合わせではない
+                  - トピックと利用可能なソースに焦点を当てた質問
+
+                  クエリがフォローアップを必要としない場合は、空の応答を返してください。
+                  ${isFollowUp ? '会話履歴全体を考慮し、以前の質問を繰り返さないでください。' : ''}
+                  質問のみを返してください。1行に1つ、番号や箇条書きは不要です。
+                  日本語で質問を生成してください。`
                 },
                 {
                   role: 'user',
-                  content: `Query: ${query}\n\nAnswer provided: ${fullAnswer.substring(0, 500)}...\n\n${sources.length > 0 ? `Available sources about: ${sources.map((s: { title: string }) => s.title).join(', ')}\n\n` : ''}Generate 5 diverse follow-up questions that would help the user learn more about this topic from different angles.`
+                  content: `クエリ: ${query}\n\n提供された回答: ${fullAnswer.substring(0, 500)}...\n\n${sources.length > 0 ? `利用可能なソース: ${sources.map(s => s.title).join(', ')}\n\n` : ''}このトピックについてさらに学ぶための、異なる角度からの5つの多様なフォローアップ質問を生成してください。`
                 }
               ],
               temperature: 0.7,
               maxRetries: 2
             })
-            
-            // Process follow-up questions
+
+            // フォローアップ質問を処理
             const followUpQuestions = followUpResponse.text
               .split('\n')
               .map((q: string) => q.trim())
               .filter((q: string) => q.length > 0)
               .slice(0, 5)
 
-            // Send follow-up questions as a data part
+            // フォローアップ質問をデータパートとして送信
             writer.write({
               type: 'data-followup',
               id: 'followup-1',
               data: { questions: followUpQuestions }
             })
           } catch (followUpError) {
-            // Error generating follow-up questions
+            // フォローアップ質問の生成エラー（無視）
           }
-          
+
         } catch (error) {
-          
-          // Handle specific error types
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-          const statusCode = error && typeof error === 'object' && 'statusCode' in error 
-            ? error.statusCode 
-            : error && typeof error === 'object' && 'status' in error
-            ? error.status
-            : undefined
-          
-          // Provide user-friendly error messages
+          // エラー処理
+          const errorMessage = error instanceof Error ? error.message : '不明なエラー'
+
+          // ユーザーフレンドリーなエラーメッセージ
           const errorResponses: Record<number, { error: string; suggestion?: string }> = {
-            401: {
-              error: 'Invalid API key',
-              suggestion: 'Please check your Firecrawl API key is correct.'
-            },
-            402: {
-              error: 'Insufficient credits',
-              suggestion: 'You\'ve run out of Firecrawl credits. Please upgrade your plan.'
-            },
             429: {
-              error: 'Rate limit exceeded',
-              suggestion: 'Too many requests. Please wait a moment and try again.'
+              error: 'レート制限に達しました',
+              suggestion: 'リクエストが多すぎます。しばらく待ってから再試行してください。'
             },
             504: {
-              error: 'Request timeout',
-              suggestion: 'The search took too long. Try a simpler query or fewer sources.'
+              error: 'リクエストタイムアウト',
+              suggestion: '検索に時間がかかりすぎました。より簡単なクエリを試してください。'
             }
           }
-          
-          const errorResponse = statusCode && errorResponses[statusCode as keyof typeof errorResponses] 
-            ? errorResponses[statusCode as keyof typeof errorResponses]
+
+          const statusCode = error && typeof error === 'object' && 'status' in error
+            ? (error as any).status
+            : undefined
+
+          const errorResponse = statusCode && errorResponses[statusCode]
+            ? errorResponses[statusCode]
             : { error: errorMessage }
-          
+
           writer.write({
             type: 'data-error',
             id: 'error-1',
@@ -389,14 +351,13 @@ export async function POST(request: Request) {
         }
       }
     })
-    
+
     return createUIMessageStreamResponse({ stream })
-    
+
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-    const errorStack = error instanceof Error ? error.stack : ''
+    const errorMessage = error instanceof Error ? error.message : '不明なエラー'
     return NextResponse.json(
-      { error: 'Search failed', message: errorMessage, details: errorStack },
+      { error: '検索に失敗しました', message: errorMessage },
       { status: 500 }
     )
   }

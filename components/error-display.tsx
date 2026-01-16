@@ -10,13 +10,13 @@ interface ErrorDisplayProps {
 }
 
 export function ErrorDisplay({ error, onRetry, context }: ErrorDisplayProps) {
-  // Extract status code from error
+  // エラーからステータスコードを抽出
   const statusCode = 'statusCode' in error && error.statusCode ? error.statusCode : 500
   const errorInfo = getErrorMessage(statusCode)
-  
-  // Extract retry time from rate limit errors
+
+  // レート制限エラーからリトライ時間を抽出
   const retryAfter = error.message?.match(/retry after (\d+)s/)?.[1]
-  
+
   return (
     <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/20 p-6">
       <div className="flex items-start gap-3">
@@ -28,19 +28,19 @@ export function ErrorDisplay({ error, onRetry, context }: ErrorDisplayProps) {
           <p className="text-sm text-red-700 dark:text-red-300 mt-1">
             {errorInfo.message}
           </p>
-          
+
           {context && (
             <p className="text-xs text-red-600 dark:text-red-400 mt-2">
-              Context: {context}
+              詳細: {context}
             </p>
           )}
-          
+
           {retryAfter && (
             <p className="text-sm text-red-600 dark:text-red-400 mt-2">
-              Please wait {retryAfter} seconds before retrying.
+              {retryAfter}秒後に再試行してください。
             </p>
           )}
-          
+
           <div className="flex items-center gap-3 mt-4">
             {onRetry && statusCode !== 402 && (
               <Button
@@ -50,10 +50,10 @@ export function ErrorDisplay({ error, onRetry, context }: ErrorDisplayProps) {
                 className="text-red-700 border-red-300 hover:bg-red-100 dark:text-red-300 dark:border-red-700 dark:hover:bg-red-900/20"
               >
                 <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
-                Try again
+                再試行
               </Button>
             )}
-            
+
             <a
               href={errorInfo.actionUrl}
               target="_blank"

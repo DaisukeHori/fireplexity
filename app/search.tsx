@@ -2,7 +2,6 @@
 
 import { Search, Loader2 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
 
 interface SearchComponentProps {
   handleSubmit: (e: React.FormEvent<HTMLFormElement>) => void
@@ -19,7 +18,7 @@ export function SearchComponent({ handleSubmit, input, handleInputChange, isLoad
           type="text"
           value={input}
           onChange={handleInputChange}
-          placeholder="Ask anything..."
+          placeholder="何でも検索..."
           className="pr-24 h-14 text-lg rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-zinc-800 transition-colors"
           disabled={isLoading}
         />
@@ -32,19 +31,19 @@ export function SearchComponent({ handleSubmit, input, handleInputChange, isLoad
             {isLoading ? (
               <Loader2 className="h-5 w-5 animate-spin text-white" />
             ) : (
-              <svg 
-                fill="none" 
-                height="20" 
-                viewBox="0 0 20 20" 
-                width="20" 
+              <svg
+                fill="none"
+                height="20"
+                viewBox="0 0 20 20"
+                width="20"
                 xmlns="http://www.w3.org/2000/svg"
                 className="text-white"
               >
-                <path 
-                  d="M11.6667 4.79163L16.875 9.99994M16.875 9.99994L11.6667 15.2083M16.875 9.99994H3.125" 
-                  stroke="currentColor" 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round" 
+                <path
+                  d="M11.6667 4.79163L16.875 9.99994M16.875 9.99994L11.6667 15.2083M16.875 9.99994H3.125"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                   strokeWidth="1.5"
                 />
               </svg>
