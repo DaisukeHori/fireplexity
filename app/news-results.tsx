@@ -17,7 +17,7 @@ export function NewsResults({ results, isLoading }: NewsResultsProps) {
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-3">
           <Newspaper className="h-4 w-4" />
-          News
+          ニュース
         </h3>
         {[1, 2, 3].map((i) => (
           <Card key={i} className="p-3 animate-pulse bg-white dark:bg-zinc-800 border-gray-200 dark:border-gray-700">
@@ -37,9 +37,9 @@ export function NewsResults({ results, isLoading }: NewsResultsProps) {
     <div className="space-y-3 relative">
       <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-3">
         <Newspaper className="h-4 w-4" />
-        News
+        ニュース
       </h3>
-      {/* Mobile: Horizontal scroll, Desktop: Vertical stack */}
+      {/* モバイル: 横スクロール、デスクトップ: 縦スタック */}
       <div className="sm:space-y-2 sm:block flex overflow-x-auto gap-3 pb-2 sm:mx-0 sm:px-0 scrollbar-hide">
         {results.slice(0, 5).map((result, index) => (
           <a
@@ -77,15 +77,15 @@ export function NewsResults({ results, isLoading }: NewsResultsProps) {
                   {(() => {
                     const dateStr = result.publishedDate || result.date;
                     if (!dateStr) return null;
-                    
+
                     try {
                       const date = new Date(dateStr);
                       if (isNaN(date.getTime())) return null;
-                      
+
                       return (
                         <span className="flex items-center gap-1">
                           <Calendar className="h-3 w-3" />
-                          {date.toLocaleDateString()}
+                          {date.toLocaleDateString('ja-JP')}
                         </span>
                       );
                     } catch {

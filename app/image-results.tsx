@@ -15,13 +15,13 @@ interface ImageResultsProps {
 
 export function ImageResults({ results, isLoading }: ImageResultsProps) {
   const [selectedImage, setSelectedImage] = useState<{ url: string; title?: string } | null>(null)
-  
+
   if (isLoading) {
     return (
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-3">
           <Images className="h-4 w-4" />
-          Images
+          画像
         </h3>
         <div className="flex sm:grid sm:grid-cols-2 md:grid-cols-3 overflow-x-auto gap-3 pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide">
           {[1, 2, 3, 4, 5, 6].map((i) => (
@@ -40,9 +40,9 @@ export function ImageResults({ results, isLoading }: ImageResultsProps) {
     <div className="space-y-3">
       <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2 mb-3">
         <Images className="h-4 w-4" />
-        Images
+        画像
       </h3>
-      {/* Mobile: Horizontal scroll, Desktop: Grid */}
+      {/* モバイル: 横スクロール、デスクトップ: グリッド */}
       <div className="flex sm:grid sm:grid-cols-2 md:grid-cols-3 overflow-x-auto gap-3 pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 scrollbar-hide">
         {results.slice(0, 6).map((result, index) => (
           <div
@@ -54,7 +54,7 @@ export function ImageResults({ results, isLoading }: ImageResultsProps) {
               {result.thumbnail && isValidImageUrl(result.thumbnail) ? (
                 <Image
                   src={result.thumbnail}
-                  alt={result.title || 'Image'}
+                  alt={result.title || '画像'}
                   fill
                   className="object-cover"
                   unoptimized
@@ -74,14 +74,14 @@ export function ImageResults({ results, isLoading }: ImageResultsProps) {
               )}
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
                 <div className="absolute bottom-0 left-0 right-0 p-1 sm:p-2">
-                  <p className="text-[10px] sm:text-xs text-white line-clamp-1 sm:line-clamp-2">{result.title || 'View image'}</p>
+                  <p className="text-[10px] sm:text-xs text-white line-clamp-1 sm:line-clamp-2">{result.title || '画像を表示'}</p>
                   {result.source && (
                     <p className="text-[10px] sm:text-xs text-gray-300 mt-0.5 sm:mt-1 line-clamp-1">{result.source}</p>
                   )}
                 </div>
-                <a 
-                  href={result.url} 
-                  target="_blank" 
+                <a
+                  href={result.url}
+                  target="_blank"
                   rel="noopener noreferrer"
                   className="absolute top-1 right-1 sm:top-2 sm:right-2 p-1 rounded hover:bg-white/20 transition-colors"
                   onClick={(e) => e.stopPropagation()}
@@ -93,8 +93,8 @@ export function ImageResults({ results, isLoading }: ImageResultsProps) {
           </div>
         ))}
       </div>
-      
-      {/* Image Modal */}
+
+      {/* 画像モーダル */}
       {selectedImage && (
         <ImageModal
           imageUrl={selectedImage.url}

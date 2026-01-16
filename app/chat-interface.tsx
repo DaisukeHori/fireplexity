@@ -182,17 +182,17 @@ export function ChatInterface({ messages, sources, newsResults, imageResults, fo
                     )}
                     {pair.assistant && (
                       <>
-                        {/* Sources - Show for each assistant response */}
+                        {/* ソース - Show for each assistant response */}
                         {messageSources.length > 0 && (
                           <div>
                             <div className="flex items-center justify-between mb-3">
                               <div className="flex items-center gap-2">
                                 <FileText className="h-4 w-4 text-black dark:text-white" />
-                                <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Sources</h2>
+                                <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">ソース</h2>
                               </div>
                               {messageSources.length > 5 && (
                                 <div className="flex items-center gap-1">
-                                  <span className="text-xs text-gray-500 dark:text-gray-400 mr-1">+{messageSources.length - 5} more</span>
+                                  <span className="text-xs text-gray-500 dark:text-gray-400 mr-1">+{messageSources.length - 5} 件以上</span>
                                   <div className="flex -space-x-2">
                                     {messageSources.slice(5, 10).map((result, idx) => (
                                       <div key={idx} className="w-5 h-5 bg-white dark:bg-zinc-700 rounded-full flex items-center justify-center overflow-hidden border border-gray-200 dark:border-gray-600">
@@ -303,18 +303,18 @@ export function ChatInterface({ messages, sources, newsResults, imageResults, fo
                           </div>
                         )}
                         
-                        {/* Answer */}
+                        {/* 回答 */}
                         <div>
                           <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-2">
                               <Sparkles className="h-4 w-4 text-black dark:text-white" />
-                              <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Answer</h2>
+                              <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">回答</h2>
                             </div>
                             <div className="flex items-center gap-1">
                               <button
                                 onClick={() => handleCopy(pair.assistant ? getMessageContent(pair.assistant) : '', `message-${pairIndex}`)}
                                 className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
-                                title={copiedMessageId === `message-${pairIndex}` ? "Copied!" : "Copy response"}
+                                title={copiedMessageId === `message-${pairIndex}` ? "コピー済み!" : "回答をコピー"}
                               >
                                 {copiedMessageId === `message-${pairIndex}` ? (
                                   <Check className="h-3.5 w-3.5 text-green-500" />
@@ -332,12 +332,12 @@ export function ChatInterface({ messages, sources, newsResults, imageResults, fo
                           </div>
                         </div>
                         
-                        {/* Related Questions - Show after each assistant response */}
+                        {/* 関連 Questions - Show after each assistant response */}
                         {messageFollowUpQuestions.length > 0 && (
                           <div className="mt-6">
                             <div className="flex items-center gap-2 mb-3">
                               <Sparkles className="h-4 w-4 text-black dark:text-white" />
-                              <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Related</h2>
+                              <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">関連</h2>
                             </div>
                             <div className="space-y-2">
                               {messageFollowUpQuestions.map((question, qIndex) => (
@@ -383,20 +383,20 @@ export function ChatInterface({ messages, sources, newsResults, imageResults, fo
             </div>
           )}
 
-          {/* Sources, Images & News - Animated in first */}
+          {/* ソース, Images & News - Animated in first */}
           {(sources.length > 0 || imageResults.length > 0 || newsResults.length > 0) && !isWaitingForResponse && (
             <div className="opacity-0 animate-fade-up [animation-duration:500ms] [animation-delay:200ms] [animation-fill-mode:forwards] space-y-4">
-              {/* Sources Section */}
+              {/* ソース Section */}
               {sources.length > 0 && (
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                       <FileText className="h-4 w-4 text-black dark:text-white" />
-                      <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Sources</h2>
+                      <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">ソース</h2>
                     </div>
                 {sources.length > 5 && (
                   <div className="flex items-center gap-1">
-                    <span className="text-xs text-gray-500 dark:text-gray-400 mr-1">+{sources.length - 5} more</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400 mr-1">+{sources.length - 5} 件以上</span>
                     <div className="flex -space-x-2">
                       {sources.slice(5, 10).map((result, index) => (
                         <div key={index} className="w-5 h-5 bg-white dark:bg-zinc-700 rounded-full flex items-center justify-center overflow-hidden border border-gray-200 dark:border-gray-600">
@@ -499,14 +499,14 @@ export function ChatInterface({ messages, sources, newsResults, imageResults, fo
                 </div>
               )}
               
-              {/* Images Section - Grouped with Sources */}
+              {/* Images Section - Grouped with ソース */}
               {imageResults.length > 0 && (
                 <div className="lg:hidden">
                   <ImageResults results={imageResults} isLoading={false} />
                 </div>
               )}
               
-              {/* News Section - Grouped with Sources and Images */}
+              {/* News Section - Grouped with ソース and Images */}
               {newsResults.length > 0 && (
                 <div className="lg:hidden">
                   <NewsResults results={newsResults} isLoading={false} />
@@ -523,20 +523,20 @@ export function ChatInterface({ messages, sources, newsResults, imageResults, fo
             </div>
           )}
 
-          {/* AI Answer - Streamed in */}
+          {/* AI 回答 - Streamed in */}
           {messages.length > 0 && messages[messages.length - 2]?.role === 'user' && messages[messages.length - 1]?.role === 'assistant' && (
             <div className="opacity-0 animate-fade-up [animation-duration:500ms] [animation-fill-mode:forwards]">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <Sparkles className="h-4 w-4 text-black dark:text-white" />
-                  <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Answer</h2>
+                  <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">回答</h2>
                 </div>
                 {!isLoading && (
                   <div className="flex items-center gap-1 opacity-0 animate-fade-in [animation-duration:300ms] [animation-delay:200ms] [animation-fill-mode:forwards]">
                     <button
                       onClick={() => handleCopy(getMessageContent(messages[messages.length - 1]), 'current-message')}
                       className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
-                      title={copiedMessageId === 'current-message' ? "Copied!" : "Copy response"}
+                      title={copiedMessageId === 'current-message' ? "コピー済み!" : "回答をコピー"}
                     >
                       {copiedMessageId === 'current-message' ? (
                         <Check className="h-3.5 w-3.5 text-green-500" />
@@ -547,7 +547,7 @@ export function ChatInterface({ messages, sources, newsResults, imageResults, fo
                     <button
                       onClick={handleRewrite}
                       className="p-1.5 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
-                      title="Rewrite response"
+                      title="回答を再生成"
                     >
                       <RefreshCw className="h-3.5 w-3.5" />
                     </button>
@@ -570,12 +570,12 @@ export function ChatInterface({ messages, sources, newsResults, imageResults, fo
             <div className="opacity-0 animate-fade-up [animation-duration:500ms] [animation-fill-mode:forwards]">
               <div className="flex items-center gap-2 mb-3">
                 <Sparkles className="h-4 w-4 text-black dark:text-white" />
-                <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Answer</h2>
+                <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">回答</h2>
               </div>
               <div>
                 <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Generating answer...</span>
+                  <span>回答を生成中...</span>
                 </div>
               </div>
             </div>
@@ -586,7 +586,7 @@ export function ChatInterface({ messages, sources, newsResults, imageResults, fo
             <div className="opacity-0 animate-fade-up [animation-duration:300ms] [animation-fill-mode:forwards]">
               <div className="flex items-center gap-2 mb-3">
                 <Sparkles className="h-4 w-4 text-black dark:text-white" />
-                <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Related</h2>
+                <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">関連</h2>
               </div>
               <div className="space-y-2">
                 {followUpQuestions.map((question, index) => (
@@ -627,7 +627,7 @@ export function ChatInterface({ messages, sources, newsResults, imageResults, fo
                       formRef.current?.requestSubmit()
                     }
                   }}
-                  placeholder="Ask a follow-up question..."
+                  placeholder="追加の質問を入力..."
                   className="resize-none border-0 focus:ring-0 focus:outline-none bg-transparent placeholder:text-gray-400 dark:placeholder:text-gray-500 px-4 py-2 pr-2 shadow-none focus-visible:ring-0 focus-visible:border-0"
                   rows={1}
                   style={{
