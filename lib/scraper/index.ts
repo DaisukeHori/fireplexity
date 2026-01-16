@@ -51,6 +51,7 @@ export async function integratedSearch(
     includeNews?: boolean
     includeImages?: boolean
     scrapeContent?: boolean
+    braveApiKey?: string
   } = {}
 ): Promise<IntegratedSearchResult> {
   const {
@@ -58,6 +59,7 @@ export async function integratedSearch(
     includeNews = true,
     includeImages = true,
     scrapeContent = true,
+    braveApiKey,
   } = options
 
   // まず検索を実行
@@ -65,8 +67,7 @@ export async function integratedSearch(
     numResults,
     includeNews,
     includeImages,
-    lang: 'ja',
-    country: 'jp',
+    braveApiKey,
   })
 
   // Web検索結果のURLをスクレイピング
