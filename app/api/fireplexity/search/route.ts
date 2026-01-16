@@ -31,9 +31,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'クエリが必要です' }, { status: 400 })
     }
 
-    // APIキーを取得
+    // APIキーとベースURLを取得
     const groqApiKey = process.env.GROQ_API_KEY
     const openaiApiKey = body.openaiApiKey || process.env.OPENAI_API_KEY
+    const openaiBaseUrl = body.openaiBaseUrl || process.env.OPENAI_API_BASE_URL || undefined
+    const openaiModel = body.openaiModel || process.env.OPENAI_MODEL || 'gpt-5.2'
 
     // プロバイダーの選択（デフォルトはopenai、なければgroq）
     const provider: AIProvider = body.provider || (openaiApiKey ? 'openai' : 'groq')
@@ -49,11 +51,14 @@ export async function POST(request: Request) {
 
     // プロバイダーに応じたAIクライアントを設定
     const groq = groqApiKey ? createGroq({ apiKey: groqApiKey }) : null
-    const openai = openaiApiKey ? createOpenAI({ apiKey: openaiApiKey }) : null
+    const openai = openaiApiKey ? createOpenAI({
+      apiKey: openaiApiKey,
+      baseURL: openaiBaseUrl,
+    }) : null
 
     // 使用するモデルを選択
     const model = provider === 'openai' && openai
-      ? openai('gpt-4o-mini')
+      ? openai(openaiModel)
       : groq
         ? groq('llama-3.3-70b-versatile')
         : null
