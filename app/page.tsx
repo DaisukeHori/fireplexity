@@ -33,6 +33,7 @@ export default function FireplexityPage() {
 
   // AI設定
   const [aiSettings, setAISettings] = useState<AISettings>({
+    model: 'gpt-5.2',
     reasoningEffort: 'medium',
     textVerbosity: 'medium'
   })
@@ -41,6 +42,7 @@ export default function FireplexityPage() {
   const transport = useMemo(() => new DefaultChatTransport({
     api: '/api/fireplexity/search',
     body: {
+      openaiModel: aiSettings.model,
       reasoningEffort: aiSettings.reasoningEffort,
       textVerbosity: aiSettings.textVerbosity,
     }

@@ -4,9 +4,17 @@ import { useState } from 'react'
 import { Settings, ChevronDown, ChevronUp } from 'lucide-react'
 
 export interface AISettings {
+  model: string
   reasoningEffort: 'minimal' | 'medium' | 'high'
   textVerbosity: 'terse' | 'medium' | 'verbose'
 }
+
+export const AI_MODELS = [
+  { value: 'gpt-5.2', label: 'GPT-5.2', description: '最新・高性能' },
+  { value: 'gpt-5.2-pro', label: 'GPT-5.2 Pro', description: '最高性能' },
+  { value: 'gpt-5-mini', label: 'GPT-5 Mini', description: '高速・軽量' },
+  { value: 'gpt-5-nano', label: 'GPT-5 Nano', description: '超高速' },
+] as const
 
 interface AISettingsProps {
   settings: AISettings
@@ -31,8 +39,34 @@ export function AISettingsPanel({ settings, onSettingsChange }: AISettingsProps)
       {isOpen && (
         <div className="absolute top-full mt-2 right-0 z-50 w-72 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-lg p-4">
           <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mb-4">
-            AI設定 (GPT-5.2)
+            AI設定
           </h3>
+
+          {/* Model Selection */}
+          <div className="mb-4">
+            <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-2">
+              AIモデル
+            </label>
+            <div className="grid grid-cols-2 gap-1">
+              {AI_MODELS.map((model) => (
+                <button
+                  key={model.value}
+                  onClick={() => onSettingsChange({ ...settings, model: model.value })}
+                  className={`px-2 py-2 text-xs rounded-lg transition-colors ${
+                    settings.model === model.value
+                      ? 'bg-[#ff4d00] text-white'
+                      : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                  }`}
+                  title={model.description}
+                >
+                  {model.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-zinc-500 dark:text-zinc-500 mt-1">
+              {AI_MODELS.find(m => m.value === settings.model)?.description || ''}
+            </p>
+          </div>
 
           {/* Reasoning Effort */}
           <div className="mb-4">
