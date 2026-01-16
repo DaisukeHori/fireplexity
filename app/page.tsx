@@ -7,7 +7,8 @@ import { ChatInterface } from './chat-interface'
 import { SearchResult, NewsResult, ImageResult } from './types'
 import Link from 'next/link'
 import Image from 'next/image'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { AISettingsPanel, AISettings } from './ai-settings'
 
 interface MessageData {
   sources: SearchResult[]
@@ -30,10 +31,23 @@ export default function FireplexityPage() {
   const [currentTicker, setCurrentTicker] = useState<string | null>(null)
   const [input, setInput] = useState<string>('')
 
+  // AI設定
+  const [aiSettings, setAISettings] = useState<AISettings>({
+    reasoningEffort: 'medium',
+    textVerbosity: 'medium'
+  })
+
+  // AI設定をbodyに含めるカスタムトランスポート
+  const transport = useMemo(() => new DefaultChatTransport({
+    api: '/api/fireplexity/search',
+    body: {
+      reasoningEffort: aiSettings.reasoningEffort,
+      textVerbosity: aiSettings.textVerbosity,
+    }
+  }), [aiSettings])
+
   const { messages, sendMessage, status } = useChat({
-    transport: new DefaultChatTransport({
-      api: '/api/fireplexity/search',
-    })
+    transport
   })
 
   // ストリーミングデータを処理する統合されたエフェクト
@@ -175,6 +189,10 @@ export default function FireplexityPage() {
           >
             <span className="text-xl font-bold text-[#ff4d00]">AI検索</span>
           </Link>
+          <AISettingsPanel
+            settings={aiSettings}
+            onSettingsChange={setAISettings}
+          />
         </div>
       </header>
 

@@ -37,6 +37,10 @@ export async function POST(request: Request) {
     const openaiBaseUrl = body.openaiBaseUrl || process.env.OPENAI_API_BASE_URL || undefined
     const openaiModel = body.openaiModel || process.env.OPENAI_MODEL || 'gpt-5.2'
 
+    // GPT-5.2 Responses API パラメータ
+    const reasoningEffort = body.reasoningEffort || 'medium' // 'minimal' | 'medium' | 'high'
+    const textVerbosity = body.textVerbosity || 'medium' // 'terse' | 'medium' | 'verbose'
+
     // プロバイダーの選択（デフォルトはopenai、なければgroq）
     const provider: AIProvider = body.provider || (openaiApiKey ? 'openai' : 'groq')
 
@@ -266,7 +270,16 @@ export async function POST(request: Request) {
             model: model as any,
             messages: aiMessages,
             temperature: 0.7,
-            maxRetries: 2
+            maxRetries: 2,
+            // GPT-5.2 Responses API用のパラメータ
+            ...(isGpt5Model && {
+              providerOptions: {
+                openai: {
+                  reasoningEffort: reasoningEffort,
+                  textVerbosity: textVerbosity,
+                }
+              }
+            })
           })
 
           // AIストリームをUIMessageストリームにマージ
