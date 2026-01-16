@@ -511,16 +511,24 @@ export async function POST(request: Request) {
             // ストリーム完了を待つためのPromise
             const streamComplete = new Promise<void>((resolve, reject) => {
               // AIストリームをUIMessageStreamにマージするためのReadableStreamを作成
+              const messageId = `msg-${Date.now()}`
               const aiStream = new ReadableStream({
                 async start(controller) {
                   const encoder = new TextEncoder()
                   try {
+                    // AI SDK Data Stream Protocol形式
+                    // 8: メッセージアノテーション（開始）
+                    controller.enqueue(encoder.encode(`8:${JSON.stringify([{type:"message",id:messageId,role:"assistant"}])}\n`))
+
                     for await (const chunk of textStream) {
                       fullAnswer += chunk
-                      // AI SDK UIMessageStream形式: 0:テキストチャンク
+                      // 0: テキストデルタ
                       controller.enqueue(encoder.encode(`0:${JSON.stringify(chunk)}\n`))
                     }
-                    // 完了マーカー
+
+                    // e: ストリーム終了 (finish_reason)
+                    controller.enqueue(encoder.encode(`e:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0},"isContinued":false}\n`))
+                    // d: 完了マーカー
                     controller.enqueue(encoder.encode(`d:{"finishReason":"stop"}\n`))
                     controller.close()
                     resolve()
