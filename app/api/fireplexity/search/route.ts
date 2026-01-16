@@ -432,8 +432,8 @@ export async function POST(request: Request) {
             })
           }
 
-          // ソースからコンテキストを準備
-          context = sources
+          // ソースからコンテキストを準備（Web結果 + ニュース結果）
+          const webContext = sources
             .map((source, index) => {
               const content = source.markdown || source.content || source.description || ''
               const relevantContent = selectRelevantContent(content, query, 2000)
@@ -441,8 +441,25 @@ export async function POST(request: Request) {
             })
             .join('\n\n---\n\n')
 
+          // ニュース結果もコンテキストに追加
+          const newsContext = newsResults
+            .map((news, index) => {
+              const newsIndex = sources.length + index + 1
+              return `[${newsIndex}] [ニュース] ${news.title}\nURL: ${news.url}\n${news.description || ''}\n${news.publishedDate ? `公開日: ${news.publishedDate}` : ''}`
+            })
+            .join('\n\n---\n\n')
+
+          // Web結果とニュース結果を結合
+          if (webContext && newsContext) {
+            context = webContext + '\n\n---\n\n' + newsContext
+          } else if (webContext) {
+            context = webContext
+          } else if (newsContext) {
+            context = newsContext
+          }
+
           // デバッグ: コンテキストの確認
-          console.log('[Context] Sources count:', sources.length)
+          console.log('[Context] Sources count:', sources.length, 'News count:', newsResults.length)
           console.log('[Context] Context length:', context.length)
           if (context.length > 0) {
             console.log('[Context] First 500 chars:', context.substring(0, 500))
