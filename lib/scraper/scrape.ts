@@ -221,7 +221,7 @@ export async function scrapeUrl(url: string, options: {
     clearTimeout(timeoutId)
 
     if (!response.ok) {
-      // 403/404等は静かにスキップ（ログ出力しない）
+      console.warn(`[Scrape] ${response.status}: ${url}`)
       return null
     }
 
@@ -266,8 +266,8 @@ export async function scrapeUrl(url: string, options: {
       ogImage: metadata.ogImage,
       siteName: metadata.siteName,
     }
-  } catch {
-    // タイムアウトやネットワークエラーは静かにスキップ
+  } catch (error) {
+    console.warn(`[Scrape] Error: ${url}`, (error as Error).message || error)
     return null
   }
 }

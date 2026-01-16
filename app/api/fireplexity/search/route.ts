@@ -345,6 +345,7 @@ export async function POST(request: Request) {
         } catch (error) {
           // エラー処理
           const errorMessage = error instanceof Error ? error.message : '不明なエラー'
+          console.error('[AI Generation] Error:', errorMessage, error)
 
           // ユーザーフレンドリーなエラーメッセージ
           const errorResponses: Record<number, { error: string; suggestion?: string }> = {
@@ -366,6 +367,7 @@ export async function POST(request: Request) {
             ? errorResponses[statusCode]
             : { error: errorMessage }
 
+          // エラーメッセージをUIに表示
           writer.write({
             type: 'data-error',
             id: 'error-1',
@@ -375,6 +377,13 @@ export async function POST(request: Request) {
               ...(statusCode ? { statusCode } : {})
             },
             transient: true
+          })
+
+          // エラー時もテキストとして表示
+          writer.write({
+            type: 'text-delta',
+            id: 'error-text',
+            delta: `\n\n**エラーが発生しました:** ${errorResponse.error}${errorResponse.suggestion ? `\n${errorResponse.suggestion}` : ''}`
           })
         }
       }

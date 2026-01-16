@@ -45,36 +45,42 @@ async function braveWebSearch(
   apiKey: string,
   numResults: number = 6
 ): Promise<WebSearchResult[]> {
-  const params = new URLSearchParams({
-    q: query,
-    count: numResults.toString(),
-  })
+  try {
+    const params = new URLSearchParams({
+      q: query,
+      count: numResults.toString(),
+    })
 
-  const response = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
-    headers: {
-      'Accept': 'application/json',
-      'X-Subscription-Token': apiKey,
-    },
-  })
+    const response = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
+      headers: {
+        'Accept': 'application/json',
+        'X-Subscription-Token': apiKey,
+      },
+    })
 
-  if (!response.ok) {
-    throw new Error(`Brave search failed: ${response.status}`)
-  }
-
-  const data = await response.json()
-  const results: WebSearchResult[] = []
-
-  if (data.web?.results) {
-    for (const item of data.web.results) {
-      results.push({
-        url: item.url,
-        title: item.title,
-        description: item.description,
-      })
+    if (!response.ok) {
+      console.warn(`[Brave Web] ${response.status}: ${query}`)
+      return []
     }
-  }
 
-  return results.slice(0, numResults)
+    const data = await response.json()
+    const results: WebSearchResult[] = []
+
+    if (data.web?.results) {
+      for (const item of data.web.results) {
+        results.push({
+          url: item.url,
+          title: item.title,
+          description: item.description,
+        })
+      }
+    }
+
+    return results.slice(0, numResults)
+  } catch (error) {
+    console.warn(`[Brave Web] Error: ${query}`, (error as Error).message || error)
+    return []
+  }
 }
 
 async function braveNewsSearch(
@@ -82,38 +88,44 @@ async function braveNewsSearch(
   apiKey: string,
   numResults: number = 5
 ): Promise<NewsSearchResult[]> {
-  const params = new URLSearchParams({
-    q: query,
-    count: numResults.toString(),
-  })
+  try {
+    const params = new URLSearchParams({
+      q: query,
+      count: numResults.toString(),
+    })
 
-  const response = await fetch(`https://api.search.brave.com/res/v1/news/search?${params}`, {
-    headers: {
-      'Accept': 'application/json',
-      'X-Subscription-Token': apiKey,
-    },
-  })
+    const response = await fetch(`https://api.search.brave.com/res/v1/news/search?${params}`, {
+      headers: {
+        'Accept': 'application/json',
+        'X-Subscription-Token': apiKey,
+      },
+    })
 
-  if (!response.ok) {
-    return [] // ニュース検索失敗は無視
-  }
-
-  const data = await response.json()
-  const results: NewsSearchResult[] = []
-
-  if (data.results) {
-    for (const item of data.results) {
-      results.push({
-        url: item.url,
-        title: item.title,
-        description: item.description,
-        source: item.source,
-        date: item.age,
-      })
+    if (!response.ok) {
+      console.warn(`[Brave News] ${response.status}: ${query}`)
+      return []
     }
-  }
 
-  return results.slice(0, numResults)
+    const data = await response.json()
+    const results: NewsSearchResult[] = []
+
+    if (data.results) {
+      for (const item of data.results) {
+        results.push({
+          url: item.url,
+          title: item.title,
+          description: item.description,
+          source: item.source,
+          date: item.age,
+        })
+      }
+    }
+
+    return results.slice(0, numResults)
+  } catch (error) {
+    console.warn(`[Brave News] Error: ${query}`, (error as Error).message || error)
+    return []
+  }
 }
 
 async function braveImageSearch(
@@ -121,39 +133,45 @@ async function braveImageSearch(
   apiKey: string,
   numResults: number = 6
 ): Promise<ImageSearchResult[]> {
-  const params = new URLSearchParams({
-    q: query,
-    count: numResults.toString(),
-  })
+  try {
+    const params = new URLSearchParams({
+      q: query,
+      count: numResults.toString(),
+    })
 
-  const response = await fetch(`https://api.search.brave.com/res/v1/images/search?${params}`, {
-    headers: {
-      'Accept': 'application/json',
-      'X-Subscription-Token': apiKey,
-    },
-  })
+    const response = await fetch(`https://api.search.brave.com/res/v1/images/search?${params}`, {
+      headers: {
+        'Accept': 'application/json',
+        'X-Subscription-Token': apiKey,
+      },
+    })
 
-  if (!response.ok) {
-    return [] // 画像検索失敗は無視
-  }
-
-  const data = await response.json()
-  const results: ImageSearchResult[] = []
-
-  if (data.results) {
-    for (const item of data.results) {
-      results.push({
-        url: item.url,
-        title: item.title || 'Untitled',
-        imageUrl: item.thumbnail?.src || item.url,
-        source: item.source,
-        width: item.width,
-        height: item.height,
-      })
+    if (!response.ok) {
+      console.warn(`[Brave Image] ${response.status}: ${query}`)
+      return []
     }
-  }
 
-  return results.slice(0, numResults)
+    const data = await response.json()
+    const results: ImageSearchResult[] = []
+
+    if (data.results) {
+      for (const item of data.results) {
+        results.push({
+          url: item.url,
+          title: item.title || 'Untitled',
+          imageUrl: item.thumbnail?.src || item.url,
+          source: item.source,
+          width: item.width,
+          height: item.height,
+        })
+      }
+    }
+
+    return results.slice(0, numResults)
+  } catch (error) {
+    console.warn(`[Brave Image] Error: ${query}`, (error as Error).message || error)
+    return []
+  }
 }
 
 // ============================================
@@ -272,8 +290,7 @@ export async function search(
         images: imageResults,
       }
     } catch (error) {
-      console.error('Brave search error:', error)
-      // Braveが失敗してもDuckDuckGoにフォールバックしない（APIキーがある場合は意図的に使用）
+      console.warn('[Brave] Unexpected error:', (error as Error).message || error)
       return { web: [], news: [], images: [] }
     }
   }
@@ -287,7 +304,7 @@ export async function search(
       images: [],
     }
   } catch (error) {
-    console.error('Search error:', error)
+    console.warn('[DuckDuckGo] Error:', (error as Error).message || error)
     return { web: [], news: [], images: [] }
   }
 }
