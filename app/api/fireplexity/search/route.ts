@@ -60,10 +60,11 @@ export async function POST(request: Request) {
       baseURL: openaiBaseUrl,
     }) : null
 
-    // 使用するモデルを選択（GPT-5.2はResponses APIを使用）
+    // 使用するモデルを選択（GPT-5系はResponses APIを使用）
     const isGpt5Model = openaiModel.startsWith('gpt-5')
-    // GPT-5.2系のみreasoningをサポート（gpt-5-mini, gpt-5-nanoはサポートしない）
-    const supportsReasoning = openaiModel.startsWith('gpt-5.2')
+    // 推論サポート: gpt-5.2（proは除く）、gpt-5-mini、gpt-5-nano
+    // gpt-5.2-proは推論オプションなし
+    const supportsReasoning = (openaiModel === 'gpt-5.2' || openaiModel.startsWith('gpt-5-mini') || openaiModel.startsWith('gpt-5-nano'))
     const model = provider === 'openai' && openai
       ? (isGpt5Model ? openai.responses(openaiModel) : openai(openaiModel))
       : groq

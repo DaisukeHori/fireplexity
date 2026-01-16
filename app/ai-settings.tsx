@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Settings, ChevronDown, ChevronUp } from 'lucide-react'
 
-export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh'
+export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 export type TextVerbosity = 'terse' | 'medium' | 'verbose'
 
 export interface AISettings {
@@ -33,20 +33,21 @@ export const AI_MODELS: ModelConfig[] = [
     value: 'gpt-5.2-pro',
     label: 'GPT-5.2 Pro',
     description: '最高性能',
-    supportsReasoning: true,
-    reasoningOptions: ['medium', 'high', 'xhigh']
+    supportsReasoning: false  // 推論オプションなし
   },
   {
     value: 'gpt-5-mini',
     label: 'GPT-5 Mini',
     description: '高速・軽量',
-    supportsReasoning: false
+    supportsReasoning: true,
+    reasoningOptions: ['minimal', 'low', 'medium', 'high']
   },
   {
     value: 'gpt-5-nano',
     label: 'GPT-5 Nano',
     description: '超高速',
-    supportsReasoning: false
+    supportsReasoning: true,
+    reasoningOptions: ['minimal', 'low', 'medium', 'high']
   },
 ]
 
@@ -63,6 +64,7 @@ interface AISettingsProps {
 // 推論の深さのラベル定義
 const REASONING_LABELS: Record<ReasoningEffort, { label: string; description: string }> = {
   none: { label: 'なし', description: '推論なし・最速' },
+  minimal: { label: '最小', description: '最小限の推論' },
   low: { label: '軽量', description: '高速・低コスト' },
   medium: { label: '標準', description: 'バランス' },
   high: { label: '深い', description: '高精度' },
