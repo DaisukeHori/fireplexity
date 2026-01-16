@@ -40,6 +40,41 @@ export interface SearchResponse {
 // Brave Search API
 // ============================================
 
+// 429エラー時のリトライヘルパー（exponential backoff）
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries: number = 3,
+  label: string = 'Brave'
+): Promise<Response> {
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options)
+
+      // 429 (Rate Limit) の場合はリトライ
+      if (response.status === 429 && attempt < maxRetries) {
+        const waitTime = Math.pow(2, attempt) * 1000 // 1s, 2s, 4s
+        console.log(`[${label}] 429 Rate Limited, retrying in ${waitTime}ms (attempt ${attempt + 1}/${maxRetries})`)
+        await new Promise(resolve => setTimeout(resolve, waitTime))
+        continue
+      }
+
+      return response
+    } catch (error) {
+      lastError = error as Error
+      if (attempt < maxRetries) {
+        const waitTime = Math.pow(2, attempt) * 1000
+        console.log(`[${label}] Network error, retrying in ${waitTime}ms (attempt ${attempt + 1}/${maxRetries})`)
+        await new Promise(resolve => setTimeout(resolve, waitTime))
+      }
+    }
+  }
+
+  throw lastError || new Error('Max retries exceeded')
+}
+
 async function braveWebSearch(
   query: string,
   apiKey: string,
@@ -51,12 +86,17 @@ async function braveWebSearch(
       count: numResults.toString(),
     })
 
-    const response = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
-      headers: {
-        'Accept': 'application/json',
-        'X-Subscription-Token': apiKey,
+    const response = await fetchWithRetry(
+      `https://api.search.brave.com/res/v1/web/search?${params}`,
+      {
+        headers: {
+          'Accept': 'application/json',
+          'X-Subscription-Token': apiKey,
+        },
       },
-    })
+      3,
+      'Brave Web'
+    )
 
     if (!response.ok) {
       console.warn(`[Brave Web] ${response.status}: ${query}`)
@@ -94,12 +134,17 @@ async function braveNewsSearch(
       count: numResults.toString(),
     })
 
-    const response = await fetch(`https://api.search.brave.com/res/v1/news/search?${params}`, {
-      headers: {
-        'Accept': 'application/json',
-        'X-Subscription-Token': apiKey,
+    const response = await fetchWithRetry(
+      `https://api.search.brave.com/res/v1/news/search?${params}`,
+      {
+        headers: {
+          'Accept': 'application/json',
+          'X-Subscription-Token': apiKey,
+        },
       },
-    })
+      3,
+      'Brave News'
+    )
 
     if (!response.ok) {
       console.warn(`[Brave News] ${response.status}: ${query}`)
@@ -139,12 +184,17 @@ async function braveImageSearch(
       count: numResults.toString(),
     })
 
-    const response = await fetch(`https://api.search.brave.com/res/v1/images/search?${params}`, {
-      headers: {
-        'Accept': 'application/json',
-        'X-Subscription-Token': apiKey,
+    const response = await fetchWithRetry(
+      `https://api.search.brave.com/res/v1/images/search?${params}`,
+      {
+        headers: {
+          'Accept': 'application/json',
+          'X-Subscription-Token': apiKey,
+        },
       },
-    })
+      3,
+      'Brave Image'
+    )
 
     if (!response.ok) {
       console.warn(`[Brave Image] ${response.status}: ${query}`)
