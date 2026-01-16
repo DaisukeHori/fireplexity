@@ -56,9 +56,10 @@ export async function POST(request: Request) {
       baseURL: openaiBaseUrl,
     }) : null
 
-    // 使用するモデルを選択
+    // 使用するモデルを選択（GPT-5.2はResponses APIを使用）
+    const isGpt5Model = openaiModel.startsWith('gpt-5')
     const model = provider === 'openai' && openai
-      ? openai(openaiModel)
+      ? (isGpt5Model ? openai.responses(openaiModel) : openai(openaiModel))
       : groq
         ? groq('llama-3.3-70b-versatile')
         : null
@@ -199,14 +200,15 @@ export async function POST(request: Request) {
             })
             .join('\n\n---\n\n')
 
-          // AIへのメッセージを準備
+          // AIへのメッセージを準備（GPT-5系はdeveloperロール、それ以外はsystemロール）
+          const systemRole = isGpt5Model ? 'developer' : 'system'
           let aiMessages: ModelMessage[] = []
 
           if (!isFollowUp) {
             // 初回クエリ
             aiMessages = [
               {
-                role: 'system',
+                role: systemRole as 'system',
                 content: `あなたは情報検索を手助けする親切なアシスタントです。
 
                 重要なフォーマットルール:
@@ -236,7 +238,7 @@ export async function POST(request: Request) {
             // フォローアップ質問
             aiMessages = [
               {
-                role: 'system',
+                role: systemRole as 'system',
                 content: `あなたは会話を続ける親切なアシスタントです。
 
                 重要なフォーマットルール:
@@ -279,7 +281,7 @@ export async function POST(request: Request) {
               model: model as any,
               messages: [
                 {
-                  role: 'system',
+                  role: systemRole as 'system',
                   content: `クエリと回答に基づいて、5つの自然なフォローアップ質問を生成してください。
 
                   以下の場合のみ質問を生成してください:
