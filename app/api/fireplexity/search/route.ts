@@ -69,6 +69,8 @@ async function* streamOpenAIResponses(
     }
   }
 
+  console.log('[OpenAI Responses API] Request:', JSON.stringify(requestBody, null, 2))
+
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -80,8 +82,11 @@ async function* streamOpenAIResponses(
 
   if (!response.ok) {
     const errorText = await response.text()
+    console.error('[OpenAI Responses API] Error:', response.status, errorText)
     throw new Error(`OpenAI API error: ${response.status} - ${errorText}`)
   }
+
+  console.log('[OpenAI Responses API] Response status:', response.status)
 
   const reader = response.body?.getReader()
   if (!reader) {
@@ -90,10 +95,14 @@ async function* streamOpenAIResponses(
 
   const decoder = new TextDecoder()
   let buffer = ''
+  let chunkCount = 0
 
   while (true) {
     const { done, value } = await reader.read()
-    if (done) break
+    if (done) {
+      console.log('[OpenAI Responses API] Stream done, total chunks:', chunkCount)
+      break
+    }
 
     buffer += decoder.decode(value, { stream: true })
     const lines = buffer.split('\n')
@@ -102,10 +111,19 @@ async function* streamOpenAIResponses(
     for (const line of lines) {
       if (line.startsWith('data: ')) {
         const data = line.slice(6)
-        if (data === '[DONE]') continue
+        if (data === '[DONE]') {
+          console.log('[OpenAI Responses API] Received [DONE]')
+          continue
+        }
 
         try {
           const parsed = JSON.parse(data)
+          // 最初の数チャンクをログ出力
+          if (chunkCount < 3) {
+            console.log('[OpenAI Responses API] Chunk:', parsed.type, JSON.stringify(parsed).substring(0, 200))
+          }
+          chunkCount++
+
           // Responses APIのストリーミング形式を処理
           if (parsed.type === 'response.output_text.delta') {
             yield parsed.delta || ''
