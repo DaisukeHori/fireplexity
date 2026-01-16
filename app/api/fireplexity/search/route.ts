@@ -501,8 +501,8 @@ export async function POST(request: Request) {
               fullAnswer += chunk
               writer.write({
                 type: 'text-delta',
-                id: 'main-text',
-                delta: chunk
+                delta: chunk,
+                id: 'main-response'
               })
             }
           } else {
@@ -627,8 +627,8 @@ export async function POST(request: Request) {
           // エラー時もテキストとして表示
           writer.write({
             type: 'text-delta',
-            id: 'error-text',
-            delta: `\n\n**エラーが発生しました:** ${errorResponse.error}${errorResponse.suggestion ? `\n${errorResponse.suggestion}` : ''}`
+            delta: `\n\n**エラーが発生しました:** ${errorResponse.error}${errorResponse.suggestion ? `\n${errorResponse.suggestion}` : ''}`,
+            id: 'error-response'
           })
         }
       }
