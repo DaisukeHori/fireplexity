@@ -10,6 +10,56 @@ export { scrapeUrl, scrapeUrls, type ScrapeResult } from './scrape'
 import { search, SearchResponse } from './search'
 import { scrapeUrls, ScrapeResult } from './scrape'
 
+// 並列スクレイプAPI呼び出し用のベースURL取得
+function getBaseUrl(): string {
+  // Vercel環境
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`
+  }
+  // ローカル環境
+  return process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
+}
+
+// 並列でスクレイプAPIを呼び出す
+async function scrapeUrlsParallel(urls: string[], timeout: number = 15000): Promise<ScrapeResult[]> {
+  const baseUrl = getBaseUrl()
+  const scrapeEndpoint = `${baseUrl}/api/scrape`
+
+  console.log(`[Scrape Parallel] Calling ${urls.length} parallel scrape functions`)
+
+  const results = await Promise.all(
+    urls.map(async (url) => {
+      try {
+        const response = await fetch(scrapeEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url, timeout, usePuppeteer: true }),
+        })
+
+        if (!response.ok) {
+          console.warn(`[Scrape Parallel] Failed for ${url}: ${response.status}`)
+          return null
+        }
+
+        const data = await response.json()
+
+        // エラーやフォールバックの場合
+        if (data.error || data.fallback) {
+          console.log(`[Scrape Parallel] Fallback for ${new URL(url).hostname}`)
+          return null
+        }
+
+        return data as ScrapeResult
+      } catch (error) {
+        console.warn(`[Scrape Parallel] Error for ${url}:`, (error as Error).message)
+        return null
+      }
+    })
+  )
+
+  return results.filter((r): r is ScrapeResult => r !== null)
+}
+
 // Firecrawlのsearchエンドポイントと互換性のある統合検索関数
 export interface IntegratedSearchResult {
   web: Array<{
@@ -52,6 +102,7 @@ export async function integratedSearch(
     includeImages?: boolean
     scrapeContent?: boolean
     braveApiKey?: string
+    useParallelScrape?: boolean // 並列スクレイプを使用するか
   } = {}
 ): Promise<IntegratedSearchResult> {
   const {
@@ -60,6 +111,7 @@ export async function integratedSearch(
     includeImages = true,
     scrapeContent = true,
     braveApiKey,
+    useParallelScrape = true, // デフォルトで並列を使用
   } = options
 
   // まず検索を実行
@@ -77,7 +129,11 @@ export async function integratedSearch(
     if (scrapeContent) {
       // スクレイピングしてコンテンツを取得
       const urls = searchResults.web.map(r => r.url)
-      const scrapedResults = await scrapeUrls(urls, { timeout: 8000 })
+
+      // 並列スクレイプ（各URLを別々のServerless関数で処理）または通常スクレイプ
+      const scrapedResults = useParallelScrape
+        ? await scrapeUrlsParallel(urls, 15000)
+        : await scrapeUrls(urls, { timeout: 8000 })
 
       // スクレイプ結果のログ
       console.log('[Scrape] Results summary:')
