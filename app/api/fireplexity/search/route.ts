@@ -36,6 +36,7 @@ export async function POST(request: Request) {
     const openaiApiKey = body.openaiApiKey || process.env.OPENAI_API_KEY
     const openaiBaseUrl = body.openaiBaseUrl || process.env.OPENAI_API_BASE_URL || undefined
     const openaiModel = body.openaiModel || process.env.OPENAI_MODEL || 'gpt-5.2'
+    const braveApiKey = process.env.BRAVE_API_KEY
 
     // GPT-5.2 Responses API パラメータ
     const reasoningEffort = body.reasoningEffort || 'medium' // 'minimal' | 'medium' | 'high'
@@ -129,12 +130,13 @@ export async function POST(request: Request) {
             transient: true
           })
 
-          // 内蔵検索エンジンを使用（Firecrawl不要）
+          // 内蔵検索エンジンを使用（Brave API優先、なければDuckDuckGo）
           const searchResult = await integratedSearch(query, {
             numResults: 6,
             includeNews: true,
             includeImages: true,
             scrapeContent: true,
+            braveApiKey,
           })
 
           // Web検索結果を変換
