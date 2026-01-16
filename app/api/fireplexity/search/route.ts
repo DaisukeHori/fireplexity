@@ -441,6 +441,15 @@ export async function POST(request: Request) {
             })
             .join('\n\n---\n\n')
 
+          // デバッグ: コンテキストの確認
+          console.log('[Context] Sources count:', sources.length)
+          console.log('[Context] Context length:', context.length)
+          if (context.length > 0) {
+            console.log('[Context] First 500 chars:', context.substring(0, 500))
+          } else {
+            console.log('[Context] WARNING: Context is empty!')
+          }
+
           // AIへのメッセージを準備（GPT-5系はdeveloperロール、それ以外はsystemロール）
           const systemRole = isGpt5Model ? 'developer' : 'system'
 
@@ -489,6 +498,8 @@ export async function POST(request: Request) {
               { role: 'user', content: userPrompt }
             ]
 
+            console.log('[GPT-5] Starting stream with userPrompt length:', userPrompt.length)
+
             const textStream = streamOpenAIResponses(
               openaiApiKey!,
               openaiBaseUrl,
@@ -497,14 +508,37 @@ export async function POST(request: Request) {
               { reasoningEffort, textVerbosity, supportsReasoning, supportsVerbosity, isProModel }
             )
 
-            for await (const chunk of textStream) {
-              fullAnswer += chunk
-              writer.write({
-                type: 'text-delta',
-                delta: chunk,
-                id: 'main-response'
+            // ストリーム完了を待つためのPromise
+            const streamComplete = new Promise<void>((resolve, reject) => {
+              // AIストリームをUIMessageStreamにマージするためのReadableStreamを作成
+              const aiStream = new ReadableStream({
+                async start(controller) {
+                  const encoder = new TextEncoder()
+                  try {
+                    for await (const chunk of textStream) {
+                      fullAnswer += chunk
+                      // AI SDK UIMessageStream形式: 0:テキストチャンク
+                      controller.enqueue(encoder.encode(`0:${JSON.stringify(chunk)}\n`))
+                    }
+                    // 完了マーカー
+                    controller.enqueue(encoder.encode(`d:{"finishReason":"stop"}\n`))
+                    controller.close()
+                    resolve()
+                  } catch (error) {
+                    console.error('[GPT-5 Stream] Error:', error)
+                    controller.error(error)
+                    reject(error)
+                  }
+                }
               })
-            }
+
+              // ストリームをマージ
+              writer.merge(aiStream)
+            })
+
+            // ストリーム完了を待つ
+            await streamComplete
+            console.log('[GPT-5] Stream complete, fullAnswer length:', fullAnswer.length)
           } else {
             // AI SDKを使用
             const aiMessages: ModelMessage[] = [
