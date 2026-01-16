@@ -4,7 +4,7 @@
  * APIキー不要で動作します
  */
 
-import { JSDOM } from 'jsdom'
+import * as cheerio from 'cheerio'
 
 // 検索結果の型定義
 export interface WebSearchResult {
@@ -65,19 +65,20 @@ function cleanUrl(href: string): string {
 }
 
 // Web検索結果を抽出
-function extractWebResults(document: Document, seenUrls: Set<string>): WebSearchResult[] {
+function extractWebResults($: cheerio.CheerioAPI, seenUrls: Set<string>): WebSearchResult[] {
   const results: WebSearchResult[] = []
-  const blocks = Array.from(document.querySelectorAll('.result.web-result'))
+  const blocks = $('.result.web-result')
 
-  for (const block of blocks) {
-    const titleLink = block.querySelector('.result__a') as HTMLAnchorElement | null
-    const snippet = block.querySelector('.result__snippet')
+  blocks.each((_, block) => {
+    const $block = $(block)
+    const titleLink = $block.find('.result__a')
+    const snippet = $block.find('.result__snippet')
 
-    if (!titleLink || !snippet) continue
+    if (titleLink.length === 0 || snippet.length === 0) return
 
-    const rawUrl = titleLink.href?.trim()
-    const title = titleLink.textContent?.trim()
-    const description = snippet.textContent?.trim()
+    const rawUrl = titleLink.attr('href')?.trim()
+    const title = titleLink.text()?.trim()
+    const description = snippet.text()?.trim()
 
     if (rawUrl && title) {
       const url = cleanUrl(rawUrl)
@@ -86,7 +87,7 @@ function extractWebResults(document: Document, seenUrls: Set<string>): WebSearch
         results.push({ url, title, description })
       }
     }
-  }
+  })
 
   return results
 }
@@ -112,23 +113,23 @@ async function searchNews(query: string, numResults: number = 5): Promise<NewsSe
     if (!response.ok) return []
 
     const html = await response.text()
-    const dom = new JSDOM(html)
-    const document = dom.window.document
+    const $ = cheerio.load(html)
 
     const results: NewsSearchResult[] = []
-    const blocks = Array.from(document.querySelectorAll('.result'))
+    const blocks = $('.result')
 
-    for (const block of blocks) {
-      if (results.length >= numResults) break
+    blocks.each((_, block) => {
+      if (results.length >= numResults) return false
 
-      const titleLink = block.querySelector('.result__a') as HTMLAnchorElement | null
-      const snippet = block.querySelector('.result__snippet')
+      const $block = $(block)
+      const titleLink = $block.find('.result__a')
+      const snippet = $block.find('.result__snippet')
 
-      if (!titleLink) continue
+      if (titleLink.length === 0) return
 
-      const rawUrl = titleLink.href?.trim()
-      const title = titleLink.textContent?.trim()
-      const description = snippet?.textContent?.trim()
+      const rawUrl = titleLink.attr('href')?.trim()
+      const title = titleLink.text()?.trim()
+      const description = snippet?.text()?.trim()
 
       if (rawUrl && title) {
         const url = cleanUrl(rawUrl)
@@ -141,7 +142,7 @@ async function searchNews(query: string, numResults: number = 5): Promise<NewsSe
           })
         }
       }
-    }
+    })
 
     return results
   } catch (error) {
@@ -260,17 +261,16 @@ export async function search(
     }
 
     const html = await response.text()
-    const dom = new JSDOM(html)
-    const document = dom.window.document
+    const $ = cheerio.load(html)
 
     // アンチボット検出
-    const anomalyModal = document.querySelector('.anomaly-modal__modal')
-    if (anomalyModal) {
+    const anomalyModal = $('.anomaly-modal__modal')
+    if (anomalyModal.length > 0) {
       throw new Error('検索がブロックされました。しばらく待ってから再試行してください。')
     }
 
     const seenUrls = new Set<string>()
-    const webResults = extractWebResults(document, seenUrls).slice(0, numResults)
+    const webResults = extractWebResults($, seenUrls).slice(0, numResults)
 
     // 並列でニュースと画像を検索
     const [newsResults, imageResults] = await Promise.all([
