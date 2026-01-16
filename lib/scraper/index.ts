@@ -82,6 +82,14 @@ export async function integratedSearch(
       // 検索結果とスクレイピング結果をマージ
       webResultsWithContent = searchResults.web.map(searchResult => {
         const scraped = scrapedResults.find(s => s.url === searchResult.url)
+        let siteName = scraped?.siteName
+        if (!siteName) {
+          try {
+            siteName = new URL(searchResult.url).hostname.replace('www.', '')
+          } catch {
+            siteName = 'unknown'
+          }
+        }
         return {
           url: searchResult.url,
           title: scraped?.title || searchResult.title,
@@ -90,17 +98,25 @@ export async function integratedSearch(
           content: scraped?.content,
           favicon: scraped?.favicon,
           image: scraped?.ogImage,
-          siteName: scraped?.siteName || new URL(searchResult.url).hostname.replace('www.', ''),
+          siteName,
         }
       })
     } else {
       // スクレイピングなしで検索結果のみ返す
-      webResultsWithContent = searchResults.web.map(r => ({
-        url: r.url,
-        title: r.title,
-        description: r.description,
-        siteName: new URL(r.url).hostname.replace('www.', ''),
-      }))
+      webResultsWithContent = searchResults.web.map(r => {
+        let siteName = 'unknown'
+        try {
+          siteName = new URL(r.url).hostname.replace('www.', '')
+        } catch {
+          // URLパースエラーは無視
+        }
+        return {
+          url: r.url,
+          title: r.title,
+          description: r.description,
+          siteName,
+        }
+      })
     }
   }
 
