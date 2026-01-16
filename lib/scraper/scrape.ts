@@ -1,11 +1,74 @@
 /**
  * 内蔵ウェブスクレイパー
  * Firecrawlのスクレイピング機能を内包した実装
- * Vercel Serverless互換（cheerio使用）
+ * Vercel Serverless互換（Puppeteer + cheerio使用）
  */
 
 import * as cheerio from 'cheerio'
 import TurndownService from 'turndown'
+import puppeteerCore, { type HTTPRequest } from 'puppeteer-core'
+import chromium from '@sparticuz/chromium'
+
+// Vercel環境かどうかを判定
+const isVercel = process.env.VERCEL === '1' || process.env.VERCEL_ENV !== undefined
+
+// Puppeteerブラウザインスタンスを取得
+async function getBrowser() {
+  // デフォルトのビューポート設定
+  const defaultViewport = {
+    deviceScaleFactor: 1,
+    hasTouch: false,
+    height: 1080,
+    isLandscape: true,
+    isMobile: false,
+    width: 1920,
+  }
+
+  if (isVercel) {
+    // Vercel Serverless環境
+    const executablePath = await chromium.executablePath()
+    return puppeteerCore.launch({
+      args: chromium.args,
+      defaultViewport,
+      executablePath,
+      headless: true,
+    })
+  } else {
+    // ローカル環境: システムにインストールされたChromeを使用
+    const possiblePaths = [
+      '/usr/bin/google-chrome',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    ]
+
+    let executablePath: string | undefined
+    for (const path of possiblePaths) {
+      try {
+        const fs = await import('fs')
+        if (fs.existsSync(path)) {
+          executablePath = path
+          break
+        }
+      } catch {
+        // 無視
+      }
+    }
+
+    if (!executablePath) {
+      // Chromeが見つからない場合はnullを返す（フォールバック処理へ）
+      return null
+    }
+
+    return puppeteerCore.launch({
+      executablePath,
+      headless: true,
+      defaultViewport,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    })
+  }
+}
 
 // スクレイピング結果の型定義
 export interface ScrapeResult {
@@ -195,16 +258,63 @@ function htmlToMarkdown(html: string): string {
     .trim()
 }
 
-// URLをスクレイピング
-export async function scrapeUrl(url: string, options: {
-  timeout?: number
-  maxContentLength?: number
-} = {}): Promise<ScrapeResult | null> {
-  const {
-    timeout = 10000,
-    maxContentLength = 50000,
-  } = options
+// Puppeteerを使ってJavaScriptレンダリング後のHTMLを取得
+async function scrapeWithPuppeteer(url: string, timeout: number): Promise<string | null> {
+  let browser = null
+  try {
+    browser = await getBrowser()
+    if (!browser) {
+      console.log(`[Scrape] Puppeteer not available, falling back to fetch`)
+      return null
+    }
 
+    const page = await browser.newPage()
+
+    // 不要なリソースをブロック
+    await page.setRequestInterception(true)
+    page.on('request', (req: HTTPRequest) => {
+      const resourceType = req.resourceType()
+      if (['image', 'stylesheet', 'font', 'media'].includes(resourceType)) {
+        req.abort()
+      } else {
+        req.continue()
+      }
+    })
+
+    // User-Agentを設定
+    await page.setUserAgent(getRandomUserAgent())
+
+    // ページにアクセス
+    await page.goto(url, {
+      waitUntil: 'networkidle2',
+      timeout,
+    })
+
+    // 少し待ってJSの実行を確実に完了させる
+    await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 1000)))
+
+    // HTMLを取得
+    const html = await page.content()
+
+    await page.close()
+
+    return html
+  } catch (error) {
+    console.warn(`[Scrape Puppeteer] Error: ${url}`, (error as Error).message || error)
+    return null
+  } finally {
+    if (browser) {
+      try {
+        await browser.close()
+      } catch {
+        // 無視
+      }
+    }
+  }
+}
+
+// fetch + cheerioでスクレイピング（フォールバック用）
+async function scrapeWithFetch(url: string, timeout: number, maxContentLength: number): Promise<string | null> {
   try {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), timeout)
@@ -221,74 +331,195 @@ export async function scrapeUrl(url: string, options: {
     clearTimeout(timeoutId)
 
     if (!response.ok) {
-      console.warn(`[Scrape] ${response.status}: ${url}`)
+      console.warn(`[Scrape Fetch] ${response.status}: ${url}`)
       return null
     }
 
     const contentType = response.headers.get('content-type') || ''
     if (!contentType.includes('text/html')) {
-      // HTML以外は静かにスキップ
       return null
     }
 
     let html = await response.text()
-
-    // 最大長を超える場合は切り詰め
     if (html.length > maxContentLength) {
       html = html.slice(0, maxContentLength)
     }
 
-    const $ = cheerio.load(html, { baseURI: url })
+    return html
+  } catch (error) {
+    console.warn(`[Scrape Fetch] Error: ${url}`, (error as Error).message || error)
+    return null
+  }
+}
 
-    // メタデータを抽出
-    const metadata = extractMetadata($, url)
+// HTMLを処理してScrapeResultを生成
+function processHtml(html: string, url: string): ScrapeResult {
+  const $ = cheerio.load(html, { baseURI: url })
 
-    // HTMLをクリーンアップ
-    cleanHtml($)
+  // メタデータを抽出
+  const metadata = extractMetadata($, url)
 
-    // メインコンテンツを抽出
-    const mainContent = extractMainContent($)
+  // HTMLをクリーンアップ
+  cleanHtml($)
 
-    // Markdownに変換
-    const markdown = htmlToMarkdown(mainContent)
+  // メインコンテンツを抽出
+  const mainContent = extractMainContent($)
 
-    // テキストコンテンツを抽出
-    const $temp = cheerio.load(mainContent)
-    const textContent = $temp.text().trim()
+  // Markdownに変換
+  const markdown = htmlToMarkdown(mainContent)
 
-    return {
-      url,
-      title: metadata.title,
-      description: metadata.description,
-      content: textContent.slice(0, 10000), // テキストは10000文字まで
-      markdown: markdown.slice(0, 20000), // Markdownは20000文字まで
-      favicon: metadata.favicon,
-      ogImage: metadata.ogImage,
-      siteName: metadata.siteName,
+  // テキストコンテンツを抽出
+  const $temp = cheerio.load(mainContent)
+  const textContent = $temp.text().trim()
+
+  return {
+    url,
+    title: metadata.title,
+    description: metadata.description,
+    content: textContent.slice(0, 10000),
+    markdown: markdown.slice(0, 20000),
+    favicon: metadata.favicon,
+    ogImage: metadata.ogImage,
+    siteName: metadata.siteName,
+  }
+}
+
+// URLをスクレイピング（Puppeteer優先、フォールバックあり）
+export async function scrapeUrl(url: string, options: {
+  timeout?: number
+  maxContentLength?: number
+  usePuppeteer?: boolean
+} = {}): Promise<ScrapeResult | null> {
+  const {
+    timeout = 15000,
+    maxContentLength = 50000,
+    usePuppeteer = true,
+  } = options
+
+  try {
+    let html: string | null = null
+
+    // Puppeteerを試行
+    if (usePuppeteer) {
+      console.log(`[Scrape] Trying Puppeteer for: ${new URL(url).hostname}`)
+      html = await scrapeWithPuppeteer(url, timeout)
     }
+
+    // Puppeteerが失敗またはスキップの場合、fetchにフォールバック
+    if (!html) {
+      console.log(`[Scrape] Using fetch fallback for: ${new URL(url).hostname}`)
+      html = await scrapeWithFetch(url, timeout, maxContentLength)
+    }
+
+    if (!html) {
+      return null
+    }
+
+    return processHtml(html, url)
   } catch (error) {
     console.warn(`[Scrape] Error: ${url}`, (error as Error).message || error)
     return null
   }
 }
 
-// 複数URLを並列スクレイピング
+// 複数URLを並列スクレイピング（ブラウザを再利用して効率化）
 export async function scrapeUrls(urls: string[], options: {
   timeout?: number
   maxConcurrent?: number
+  usePuppeteer?: boolean
 } = {}): Promise<ScrapeResult[]> {
   const {
-    timeout = 10000,
-    maxConcurrent = 5,
+    timeout = 15000,
+    maxConcurrent = 3,
+    usePuppeteer = true,
   } = options
 
   const results: ScrapeResult[] = []
 
-  // 並列実行数を制限しながらスクレイピング
+  // Puppeteerを使う場合はブラウザを一度だけ起動して再利用
+  if (usePuppeteer) {
+    let browser = null
+    try {
+      browser = await getBrowser()
+
+      if (browser) {
+        console.log(`[Scrape] Using Puppeteer for ${urls.length} URLs`)
+
+        for (let i = 0; i < urls.length; i += maxConcurrent) {
+          const batch = urls.slice(i, i + maxConcurrent)
+          const batchResults = await Promise.all(
+            batch.map(async (url) => {
+              let page = null
+              try {
+                page = await browser!.newPage()
+
+                // 不要なリソースをブロック
+                await page.setRequestInterception(true)
+                page.on('request', (req: HTTPRequest) => {
+                  const resourceType = req.resourceType()
+                  if (['image', 'stylesheet', 'font', 'media'].includes(resourceType)) {
+                    req.abort()
+                  } else {
+                    req.continue()
+                  }
+                })
+
+                await page.setUserAgent(getRandomUserAgent())
+                await page.goto(url, { waitUntil: 'networkidle2', timeout })
+                await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 500)))
+
+                const html = await page.content()
+                await page.close()
+
+                if (html) {
+                  return processHtml(html, url)
+                }
+                return null
+              } catch (error) {
+                console.warn(`[Scrape Puppeteer] Error: ${url}`, (error as Error).message || error)
+                if (page) {
+                  try { await page.close() } catch { /* ignore */ }
+                }
+                // フォールバックをfetchで試行
+                const fallbackHtml = await scrapeWithFetch(url, timeout, 50000)
+                if (fallbackHtml) {
+                  return processHtml(fallbackHtml, url)
+                }
+                return null
+              }
+            })
+          )
+
+          for (const result of batchResults) {
+            if (result) {
+              results.push(result)
+            }
+          }
+        }
+
+        return results
+      }
+    } catch (browserError) {
+      console.warn(`[Scrape] Browser launch failed, falling back to fetch:`, (browserError as Error).message)
+    } finally {
+      if (browser) {
+        try { await browser.close() } catch { /* ignore */ }
+      }
+    }
+  }
+
+  // Puppeteerが使えない場合はfetchでスクレイピング
+  console.log(`[Scrape] Using fetch for ${urls.length} URLs`)
   for (let i = 0; i < urls.length; i += maxConcurrent) {
     const batch = urls.slice(i, i + maxConcurrent)
     const batchResults = await Promise.all(
-      batch.map(url => scrapeUrl(url, { timeout }))
+      batch.map(async (url) => {
+        const html = await scrapeWithFetch(url, timeout, 50000)
+        if (html) {
+          return processHtml(html, url)
+        }
+        return null
+      })
     )
 
     for (const result of batchResults) {
