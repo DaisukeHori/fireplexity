@@ -31,9 +31,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'クエリが必要です' }, { status: 400 })
     }
 
-    // APIキーを取得
+    // APIキーとベースURLを取得
     const groqApiKey = process.env.GROQ_API_KEY
     const openaiApiKey = body.openaiApiKey || process.env.OPENAI_API_KEY
+    const openaiBaseUrl = body.openaiBaseUrl || process.env.OPENAI_API_BASE_URL || undefined
+    const openaiModel = body.openaiModel || process.env.OPENAI_MODEL || 'gpt-5.2'
+
+    // GPT-5.2 Responses API パラメータ
+    const reasoningEffort = body.reasoningEffort || 'medium' // 'minimal' | 'medium' | 'high'
+    const textVerbosity = body.textVerbosity || 'medium' // 'terse' | 'medium' | 'verbose'
 
     // プロバイダーの選択（デフォルトはopenai、なければgroq）
     const provider: AIProvider = body.provider || (openaiApiKey ? 'openai' : 'groq')
@@ -49,11 +55,21 @@ export async function POST(request: Request) {
 
     // プロバイダーに応じたAIクライアントを設定
     const groq = groqApiKey ? createGroq({ apiKey: groqApiKey }) : null
-    const openai = openaiApiKey ? createOpenAI({ apiKey: openaiApiKey }) : null
+    const openai = openaiApiKey ? createOpenAI({
+      apiKey: openaiApiKey,
+      baseURL: openaiBaseUrl,
+    }) : null
 
-    // 使用するモデルを選択
+    // 使用するモデルを選択（GPT-5系はResponses APIを使用）
+    const isGpt5Model = openaiModel.startsWith('gpt-5')
+    // gpt-5.2-proはreasoning/verbosityどちらも非対応
+    const isProModel = openaiModel === 'gpt-5.2-pro'
+    // 推論サポート: gpt-5.2、gpt-5-mini、gpt-5-nano（proは除く）
+    const supportsReasoning = !isProModel && (openaiModel === 'gpt-5.2' || openaiModel.startsWith('gpt-5-mini') || openaiModel.startsWith('gpt-5-nano'))
+    // verbosityサポート: proモデル以外
+    const supportsVerbosity = !isProModel
     const model = provider === 'openai' && openai
-      ? openai('gpt-4o-mini')
+      ? (isGpt5Model ? openai.responses(openaiModel) : openai(openaiModel))
       : groq
         ? groq('llama-3.3-70b-versatile')
         : null
@@ -194,14 +210,15 @@ export async function POST(request: Request) {
             })
             .join('\n\n---\n\n')
 
-          // AIへのメッセージを準備
+          // AIへのメッセージを準備（GPT-5系はdeveloperロール、それ以外はsystemロール）
+          const systemRole = isGpt5Model ? 'developer' : 'system'
           let aiMessages: ModelMessage[] = []
 
           if (!isFollowUp) {
             // 初回クエリ
             aiMessages = [
               {
-                role: 'system',
+                role: systemRole as 'system',
                 content: `あなたは情報検索を手助けする親切なアシスタントです。
 
                 重要なフォーマットルール:
@@ -231,7 +248,7 @@ export async function POST(request: Request) {
             // フォローアップ質問
             aiMessages = [
               {
-                role: 'system',
+                role: systemRole as 'system',
                 content: `あなたは会話を続ける親切なアシスタントです。
 
                 重要なフォーマットルール:
@@ -259,7 +276,16 @@ export async function POST(request: Request) {
             model: model as any,
             messages: aiMessages,
             temperature: 0.7,
-            maxRetries: 2
+            maxRetries: 2,
+            // GPT-5 Responses API用のパラメータ（対応モデルのみ）
+            ...(isGpt5Model && (supportsReasoning || supportsVerbosity) && {
+              providerOptions: {
+                openai: {
+                  ...(supportsReasoning && { reasoningEffort: reasoningEffort }),
+                  ...(supportsVerbosity && { textVerbosity: textVerbosity }),
+                }
+              }
+            })
           })
 
           // AIストリームをUIMessageストリームにマージ
@@ -274,7 +300,7 @@ export async function POST(request: Request) {
               model: model as any,
               messages: [
                 {
-                  role: 'system',
+                  role: systemRole as 'system',
                   content: `クエリと回答に基づいて、5つの自然なフォローアップ質問を生成してください。
 
                   以下の場合のみ質問を生成してください:
