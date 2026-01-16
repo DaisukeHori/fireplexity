@@ -234,6 +234,241 @@ async function generateOpenAIResponses(
   return data.output_text || data.choices?.[0]?.message?.content || ''
 }
 
+// GPT-5モデル用の直接ストリーミングハンドラー
+async function handleGPT5Request(params: {
+  query: string
+  messages: any[]
+  openaiApiKey: string
+  openaiBaseUrl: string | undefined
+  openaiModel: string
+  reasoningEffort: string
+  textVerbosity: string
+  supportsReasoning: boolean
+  supportsVerbosity: boolean
+  isProModel: boolean
+  braveApiKey: string | undefined
+}): Promise<Response> {
+  const {
+    query,
+    messages,
+    openaiApiKey,
+    openaiBaseUrl,
+    openaiModel,
+    reasoningEffort,
+    textVerbosity,
+    supportsReasoning,
+    supportsVerbosity,
+    isProModel,
+    braveApiKey,
+  } = params
+
+  const isFollowUp = messages.length > 2
+  const systemRole = 'developer'
+
+  const encoder = new TextEncoder()
+
+  // Data Stream Protocol helpers
+  function encodeDataPart(type: string, data: any): Uint8Array {
+    // 8: はデータアノテーション
+    return encoder.encode(`8:[${JSON.stringify({ type, ...data })}]\n`)
+  }
+
+  function encodeText(text: string): Uint8Array {
+    // 0: はテキストチャンク
+    return encoder.encode(`0:${JSON.stringify(text)}\n`)
+  }
+
+  function encodeDone(): Uint8Array {
+    return encoder.encode(`d:{"finishReason":"stop"}\n`)
+  }
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        // ステータス送信
+        controller.enqueue(encodeDataPart('data-status', { id: 'status-1', data: { message: '検索を開始しています...' } }))
+
+        // 検索実行
+        controller.enqueue(encodeDataPart('data-status', { id: 'status-2', data: { message: 'ウェブを検索中...' } }))
+
+        const searchResult = await integratedSearch(query, {
+          numResults: 6,
+          includeNews: true,
+          includeImages: true,
+          scrapeContent: true,
+          braveApiKey,
+        })
+
+        // 検索結果を変換
+        const sources = searchResult.web.map((item) => ({
+          url: item.url,
+          title: item.title,
+          description: item.description,
+          content: item.content,
+          markdown: item.markdown,
+          favicon: item.favicon,
+          image: item.image,
+          siteName: item.siteName,
+        }))
+
+        const newsResults = searchResult.news.map((item) => ({
+          url: item.url,
+          title: item.title,
+          description: item.description,
+          publishedDate: item.date,
+          source: item.source,
+          image: item.imageUrl,
+        }))
+
+        const imageResults = searchResult.images.map((item) => ({
+          url: item.url,
+          title: item.title,
+          thumbnail: item.imageUrl,
+          source: item.source,
+          width: item.width,
+          height: item.height,
+        }))
+
+        // ソースをデータパートとして送信
+        controller.enqueue(encodeDataPart('data-sources', {
+          id: 'sources-1',
+          data: { sources, newsResults, imageResults }
+        }))
+
+        // ステータス更新
+        controller.enqueue(encodeDataPart('data-status', { id: 'status-3', data: { message: 'ソースを分析して回答を生成中...' } }))
+
+        // ティッカー検出
+        const ticker = detectCompanyTicker(query)
+        if (ticker) {
+          controller.enqueue(encodeDataPart('data-ticker', { id: 'ticker-1', data: { symbol: ticker } }))
+        }
+
+        // コンテキスト準備
+        const webContext = sources
+          .map((source, index) => {
+            const content = source.markdown || source.content || source.description || ''
+            const relevantContent = selectRelevantContent(content, query, 2000)
+            return `[${index + 1}] ${source.title}\nURL: ${source.url}\n${relevantContent}`
+          })
+          .join('\n\n---\n\n')
+
+        const newsContext = newsResults
+          .map((news, index) => {
+            const newsIndex = sources.length + index + 1
+            return `[${newsIndex}] [ニュース] ${news.title}\nURL: ${news.url}\n${news.description || ''}\n${news.publishedDate ? `公開日: ${news.publishedDate}` : ''}`
+          })
+          .join('\n\n---\n\n')
+
+        let context = ''
+        if (webContext && newsContext) {
+          context = webContext + '\n\n---\n\n' + newsContext
+        } else if (webContext) {
+          context = webContext
+        } else if (newsContext) {
+          context = newsContext
+        }
+
+        console.log('[GPT-5 Handler] Context length:', context.length)
+
+        // システムプロンプト
+        const systemPrompt = !isFollowUp
+          ? `あなたは情報検索を手助けする親切なアシスタントです。
+
+            重要なフォーマットルール:
+            - 通常の数字にLaTeX/数式構文（$...$）を使わないでください
+            - すべての数字はプレーンテキストで書いてください
+
+            回答スタイル:
+            - 挨拶には温かく応答し、どのようにお手伝いできるか尋ねてください
+            - シンプルな質問には、直接的で簡潔な回答をしてください
+            - 複雑なトピックには、必要な場合にのみ詳細な説明を提供してください
+
+            フォーマット:
+            - 読みやすさのために適切なマークダウンを使用してください
+            - 特定のソースを参照する場合は[1]、[2]などの引用を含めてください
+            - 日本語で回答してください`
+          : `あなたは会話を続ける親切なアシスタントです。
+            - 以前と同じ会話のトーンを維持してください
+            - [1]、[2]などの引用を含めてください
+            - 日本語で回答してください`
+
+        const userPrompt = `このクエリに答えてください: "${query}"\n\n以下のソースに基づいて:\n${context}`
+
+        // GPT-5ストリーミング
+        const textStream = streamOpenAIResponses(
+          openaiApiKey,
+          openaiBaseUrl,
+          openaiModel,
+          [
+            { role: systemRole, content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          { reasoningEffort, textVerbosity, supportsReasoning, supportsVerbosity, isProModel }
+        )
+
+        let fullAnswer = ''
+        for await (const chunk of textStream) {
+          fullAnswer += chunk
+          controller.enqueue(encodeText(chunk))
+        }
+
+        console.log('[GPT-5 Handler] Stream complete, answer length:', fullAnswer.length)
+
+        // フォローアップ質問を生成
+        try {
+          const followUpSystemPrompt = `クエリと回答に基づいて、5つの自然なフォローアップ質問を生成してください。
+            質問のみを返してください。1行に1つ、番号や箇条書きは不要です。
+            日本語で質問を生成してください。`
+
+          const followUpUserPrompt = `クエリ: ${query}\n\n提供された回答: ${fullAnswer.substring(0, 500)}...\n\n${sources.length > 0 ? `利用可能なソース: ${sources.map(s => s.title).join(', ')}\n\n` : ''}このトピックについてさらに学ぶための5つのフォローアップ質問を生成してください。`
+
+          const followUpText = await generateOpenAIResponses(
+            openaiApiKey,
+            openaiBaseUrl,
+            openaiModel,
+            [
+              { role: systemRole, content: followUpSystemPrompt },
+              { role: 'user', content: followUpUserPrompt }
+            ],
+            { supportsReasoning, supportsVerbosity, isProModel }
+          )
+
+          const followUpQuestions = followUpText
+            .split('\n')
+            .map((q: string) => q.trim())
+            .filter((q: string) => q.length > 0)
+            .slice(0, 5)
+
+          controller.enqueue(encodeDataPart('data-followup', {
+            id: 'followup-1',
+            data: { questions: followUpQuestions }
+          }))
+        } catch (followUpError) {
+          console.warn('[GPT-5 Handler] Follow-up error:', followUpError)
+        }
+
+        // 完了シグナル
+        controller.enqueue(encodeDone())
+        controller.close()
+
+      } catch (error) {
+        console.error('[GPT-5 Handler] Error:', error)
+        controller.enqueue(encodeText(`\n\nエラーが発生しました: ${error instanceof Error ? error.message : '不明なエラー'}`))
+        controller.enqueue(encodeDone())
+        controller.close()
+      }
+    }
+  })
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'X-Vercel-AI-Data-Stream': 'v1',
+    },
+  })
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json()
@@ -307,6 +542,9 @@ export async function POST(request: Request) {
     if (!useDirectFetch && !aiSdkModel) {
       return NextResponse.json({ error: '利用可能なAIプロバイダーがありません' }, { status: 500 })
     }
+
+    // GPT-5モデル用の処理
+    // useDirectFetchがtrueの場合はcreateUIMessageStream内でGPT-5用の処理を行う
 
     // フォローアップかどうかを判定
     const isFollowUp = messages.length > 2
@@ -525,17 +763,30 @@ export async function POST(request: Request) {
               { reasoningEffort, textVerbosity, supportsReasoning, supportsVerbosity, isProModel }
             )
 
-            // writerに直接テキストを書き込む
-            const messageId = `msg-gpt5-${Date.now()}`
+            // UIMessageStream形式で書き込み
+            const textId = `text-gpt5-${Date.now()}`
+
+            // text-startを送信
+            writer.write({
+              type: 'text-start',
+              id: textId
+            })
+
+            // テキストチャンクを送信
             for await (const chunk of textStream) {
               fullAnswer += chunk
-              // text-deltaとして直接書き込み（delta + id プロパティが必要）
               writer.write({
                 type: 'text-delta',
                 delta: chunk,
-                id: messageId
+                id: textId
               })
             }
+
+            // text-endを送信
+            writer.write({
+              type: 'text-end',
+              id: textId
+            })
 
             console.log('[GPT-5] Stream complete, fullAnswer length:', fullAnswer.length)
           } else {
