@@ -40,11 +40,11 @@ export interface SearchResponse {
 // Brave Search API
 // ============================================
 
-// 429エラー時のリトライヘルパー（exponential backoff）
+// 429エラー時のリトライヘルパー（exponential backoff、最大10回）
 async function fetchWithRetry(
   url: string,
   options: RequestInit,
-  maxRetries: number = 3,
+  maxRetries: number = 10,
   label: string = 'Brave'
 ): Promise<Response> {
   let lastError: Error | null = null
@@ -55,7 +55,8 @@ async function fetchWithRetry(
 
       // 429 (Rate Limit) の場合はリトライ
       if (response.status === 429 && attempt < maxRetries) {
-        const waitTime = Math.pow(2, attempt) * 1000 // 1s, 2s, 4s
+        // 待機時間: 1s, 2s, 3s, 4s, 5s... (最大5秒)
+        const waitTime = Math.min((attempt + 1) * 1000, 5000)
         console.log(`[${label}] 429 Rate Limited, retrying in ${waitTime}ms (attempt ${attempt + 1}/${maxRetries})`)
         await new Promise(resolve => setTimeout(resolve, waitTime))
         continue
@@ -65,7 +66,7 @@ async function fetchWithRetry(
     } catch (error) {
       lastError = error as Error
       if (attempt < maxRetries) {
-        const waitTime = Math.pow(2, attempt) * 1000
+        const waitTime = Math.min((attempt + 1) * 1000, 5000)
         console.log(`[${label}] Network error, retrying in ${waitTime}ms (attempt ${attempt + 1}/${maxRetries})`)
         await new Promise(resolve => setTimeout(resolve, waitTime))
       }
@@ -94,7 +95,7 @@ async function braveWebSearch(
           'X-Subscription-Token': apiKey,
         },
       },
-      3,
+      10,
       'Brave Web'
     )
 
@@ -142,7 +143,7 @@ async function braveNewsSearch(
           'X-Subscription-Token': apiKey,
         },
       },
-      3,
+      10,
       'Brave News'
     )
 
@@ -192,7 +193,7 @@ async function braveImageSearch(
           'X-Subscription-Token': apiKey,
         },
       },
-      3,
+      10,
       'Brave Image'
     )
 
