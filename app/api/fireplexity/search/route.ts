@@ -10,6 +10,155 @@ import { integratedSearch } from '@/lib/scraper'
 // AIプロバイダーの型定義
 type AIProvider = 'groq' | 'openai'
 
+// OpenAI Responses APIのストリーミングレスポンスを処理
+async function* streamOpenAIResponses(
+  apiKey: string,
+  baseUrl: string | undefined,
+  model: string,
+  messages: Array<{ role: string; content: string }>,
+  options: {
+    reasoningEffort?: string
+    textVerbosity?: string
+    supportsReasoning: boolean
+    supportsVerbosity: boolean
+  }
+): AsyncGenerator<string, void, unknown> {
+  const url = baseUrl ? `${baseUrl}/responses` : 'https://api.openai.com/v1/responses'
+
+  // メッセージをResponses API形式に変換
+  const input = messages.map(m => ({
+    role: m.role,
+    content: m.content
+  }))
+
+  // リクエストボディを構築
+  const requestBody: Record<string, unknown> = {
+    model,
+    input,
+    stream: true,
+  }
+
+  // 推論対応モデルのみreasoningパラメータを追加
+  if (options.supportsReasoning && options.reasoningEffort && options.reasoningEffort !== 'none') {
+    requestBody.reasoning = { effort: options.reasoningEffort }
+  }
+
+  // verbosity対応モデルのみtextパラメータを追加
+  if (options.supportsVerbosity && options.textVerbosity) {
+    requestBody.text = {
+      format: { type: 'text' }
+    }
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(requestBody),
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(`OpenAI API error: ${response.status} - ${errorText}`)
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) {
+    throw new Error('No response body')
+  }
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const data = line.slice(6)
+        if (data === '[DONE]') continue
+
+        try {
+          const parsed = JSON.parse(data)
+          // Responses APIのストリーミング形式を処理
+          if (parsed.type === 'response.output_text.delta') {
+            yield parsed.delta || ''
+          } else if (parsed.type === 'response.content_part.delta' && parsed.delta?.text) {
+            yield parsed.delta.text
+          } else if (parsed.choices?.[0]?.delta?.content) {
+            // 旧Chat Completions形式のフォールバック
+            yield parsed.choices[0].delta.content
+          }
+        } catch {
+          // JSON解析エラーは無視
+        }
+      }
+    }
+  }
+}
+
+// OpenAI Responses APIで非ストリーミング生成
+async function generateOpenAIResponses(
+  apiKey: string,
+  baseUrl: string | undefined,
+  model: string,
+  messages: Array<{ role: string; content: string }>,
+  options: {
+    supportsReasoning: boolean
+    supportsVerbosity: boolean
+  }
+): Promise<string> {
+  const url = baseUrl ? `${baseUrl}/responses` : 'https://api.openai.com/v1/responses'
+
+  const input = messages.map(m => ({
+    role: m.role,
+    content: m.content
+  }))
+
+  const requestBody: Record<string, unknown> = {
+    model,
+    input,
+    stream: false,
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(requestBody),
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(`OpenAI API error: ${response.status} - ${errorText}`)
+  }
+
+  const data = await response.json()
+  // Responses APIのレスポンス形式
+  if (data.output && Array.isArray(data.output)) {
+    for (const item of data.output) {
+      if (item.type === 'message' && item.content) {
+        for (const content of item.content) {
+          if (content.type === 'output_text') {
+            return content.text || ''
+          }
+        }
+      }
+    }
+  }
+  // フォールバック
+  return data.output_text || data.choices?.[0]?.message?.content || ''
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json()
@@ -39,8 +188,8 @@ export async function POST(request: Request) {
     const braveApiKey = process.env.BRAVE_API_KEY
 
     // GPT-5.2 Responses API パラメータ
-    const reasoningEffort = body.reasoningEffort || 'medium' // 'minimal' | 'medium' | 'high'
-    const textVerbosity = body.textVerbosity || 'medium' // 'terse' | 'medium' | 'verbose'
+    const reasoningEffort = body.reasoningEffort || 'medium'
+    const textVerbosity = body.textVerbosity || 'medium'
 
     // プロバイダーの選択（デフォルトはopenai、なければgroq）
     const provider: AIProvider = body.provider || (openaiApiKey ? 'openai' : 'groq')
@@ -54,14 +203,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'OpenAI APIキーが設定されていません。環境変数OPENAI_API_KEYを設定してください。' }, { status: 500 })
     }
 
-    // プロバイダーに応じたAIクライアントを設定
-    const groq = groqApiKey ? createGroq({ apiKey: groqApiKey }) : null
-    const openai = openaiApiKey ? createOpenAI({
-      apiKey: openaiApiKey,
-      baseURL: openaiBaseUrl,
-    }) : null
-
-    // 使用するモデルを選択（GPT-5系はResponses APIを使用）
+    // モデル判定
     const isGpt5Model = openaiModel.startsWith('gpt-5')
     // gpt-5.2-proはreasoning/verbosityどちらも非対応
     const isProModel = openaiModel === 'gpt-5.2-pro'
@@ -69,13 +211,25 @@ export async function POST(request: Request) {
     const supportsReasoning = !isProModel && (openaiModel === 'gpt-5.2' || openaiModel.startsWith('gpt-5-mini') || openaiModel.startsWith('gpt-5-nano'))
     // verbosityサポート: proモデル以外
     const supportsVerbosity = !isProModel
-    const model = provider === 'openai' && openai
-      ? (isGpt5Model ? openai.responses(openaiModel) : openai(openaiModel))
+
+    // Groq用のAIクライアント（GPT-5以外の場合）
+    const groq = groqApiKey ? createGroq({ apiKey: groqApiKey }) : null
+    const openai = (provider === 'openai' && !isGpt5Model && openaiApiKey) ? createOpenAI({
+      apiKey: openaiApiKey,
+      baseURL: openaiBaseUrl,
+    }) : null
+
+    // GPT-5以外のモデル用
+    const aiSdkModel = provider === 'openai' && openai
+      ? openai(openaiModel)
       : groq
         ? groq('llama-3.3-70b-versatile')
         : null
 
-    if (!model) {
+    // GPT-5モデルの場合はfetch、それ以外はAI SDKを使用
+    const useDirectFetch = provider === 'openai' && isGpt5Model && openaiApiKey
+
+    if (!useDirectFetch && !aiSdkModel) {
       return NextResponse.json({ error: '利用可能なAIプロバイダーがありません' }, { status: 500 })
     }
 
@@ -214,119 +368,135 @@ export async function POST(request: Request) {
 
           // AIへのメッセージを準備（GPT-5系はdeveloperロール、それ以外はsystemロール）
           const systemRole = isGpt5Model ? 'developer' : 'system'
-          let aiMessages: ModelMessage[] = []
 
-          if (!isFollowUp) {
-            // 初回クエリ
-            aiMessages = [
-              {
-                role: systemRole as 'system',
-                content: `あなたは情報検索を手助けする親切なアシスタントです。
+          const systemPrompt = !isFollowUp
+            ? `あなたは情報検索を手助けする親切なアシスタントです。
 
-                重要なフォーマットルール:
-                - 通常の数字にLaTeX/数式構文（$...$）を使わないでください
-                - すべての数字はプレーンテキストで書いてください: "100万円" であり "$100万$ 円" ではありません
-                - 数式構文は本当に必要な数学の方程式にのみ使用してください
+              重要なフォーマットルール:
+              - 通常の数字にLaTeX/数式構文（$...$）を使わないでください
+              - すべての数字はプレーンテキストで書いてください: "100万円" であり "$100万$ 円" ではありません
+              - 数式構文は本当に必要な数学の方程式にのみ使用してください
 
-                回答スタイル:
-                - 挨拶（こんにちは、など）には温かく応答し、どのようにお手伝いできるか尋ねてください
-                - シンプルな質問には、直接的で簡潔な回答をしてください
-                - 複雑なトピックには、必要な場合にのみ詳細な説明を提供してください
-                - ユーザーのエネルギーレベルに合わせてください - 短い質問には短く
+              回答スタイル:
+              - 挨拶（こんにちは、など）には温かく応答し、どのようにお手伝いできるか尋ねてください
+              - シンプルな質問には、直接的で簡潔な回答をしてください
+              - 複雑なトピックには、必要な場合にのみ詳細な説明を提供してください
+              - ユーザーのエネルギーレベルに合わせてください - 短い質問には短く
 
-                フォーマット:
-                - 読みやすさのために適切なマークダウンを使用してください
-                - 自然で会話的な回答を心がけてください
-                - 特定のソースを参照する場合は[1]、[2]などの引用を含めてください
-                - 引用はソースの順序に対応させてください（最初のソース = [1]、2番目 = [2]など）
-                - 日本語で回答してください`
-              },
-              {
-                role: 'user',
-                content: `このクエリに答えてください: "${query}"\n\n以下のソースに基づいて:\n${context}`
-              }
+              フォーマット:
+              - 読みやすさのために適切なマークダウンを使用してください
+              - 自然で会話的な回答を心がけてください
+              - 特定のソースを参照する場合は[1]、[2]などの引用を含めてください
+              - 引用はソースの順序に対応させてください（最初のソース = [1]、2番目 = [2]など）
+              - 日本語で回答してください`
+            : `あなたは会話を続ける親切なアシスタントです。
+
+              重要なフォーマットルール:
+              - 通常の数字にLaTeX/数式構文（$...$）を使わないでください
+              - すべての数字はプレーンテキストで書いてください
+
+              注意事項:
+              - 以前と同じ会話のトーンを維持してください
+              - 以前の文脈を自然に活用してください
+              - ユーザーのコミュニケーションスタイルに合わせてください
+              - 明確さを助けるためにマークダウンを使用してください
+              - [1]、[2]などの引用を含めてください
+              - 日本語で回答してください`
+
+          const userPrompt = `このクエリに答えてください: "${query}"\n\n以下のソースに基づいて:\n${context}`
+
+          let fullAnswer = ''
+
+          if (useDirectFetch) {
+            // GPT-5モデル: 直接fetchでResponses APIを使用
+            const directMessages = [
+              { role: systemRole, content: systemPrompt },
+              { role: 'user', content: userPrompt }
             ]
+
+            const textStream = streamOpenAIResponses(
+              openaiApiKey!,
+              openaiBaseUrl,
+              openaiModel,
+              directMessages,
+              { reasoningEffort, textVerbosity, supportsReasoning, supportsVerbosity }
+            )
+
+            for await (const chunk of textStream) {
+              fullAnswer += chunk
+              writer.write({
+                type: 'text-delta',
+                id: 'main-text',
+                delta: chunk
+              })
+            }
           } else {
-            // フォローアップ質問
-            aiMessages = [
-              {
-                role: systemRole as 'system',
-                content: `あなたは会話を続ける親切なアシスタントです。
-
-                重要なフォーマットルール:
-                - 通常の数字にLaTeX/数式構文（$...$）を使わないでください
-                - すべての数字はプレーンテキストで書いてください
-
-                注意事項:
-                - 以前と同じ会話のトーンを維持してください
-                - 以前の文脈を自然に活用してください
-                - ユーザーのコミュニケーションスタイルに合わせてください
-                - 明確さを助けるためにマークダウンを使用してください
-                - [1]、[2]などの引用を含めてください
-                - 日本語で回答してください`
-              },
-              ...convertToModelMessages(messages.slice(0, -1)),
-              {
-                role: 'user',
-                content: `このクエリに答えてください: "${query}"\n\n以下のソースに基づいて:\n${context}`
-              }
+            // AI SDKを使用
+            const aiMessages: ModelMessage[] = [
+              { role: systemRole as 'system', content: systemPrompt },
+              ...(isFollowUp ? convertToModelMessages(messages.slice(0, -1)) : []),
+              { role: 'user', content: userPrompt }
             ]
-          }
 
-          // ストリーミングでテキスト生成
-          const result = streamText({
-            model: model as any,
-            messages: aiMessages,
-            temperature: 0.7,
-            maxRetries: 2,
-            // GPT-5 Responses API用のパラメータ（対応モデルのみ）
-            ...(isGpt5Model && (supportsReasoning || supportsVerbosity) && {
-              providerOptions: {
-                openai: {
-                  ...(supportsReasoning && { reasoningEffort: reasoningEffort }),
-                  ...(supportsVerbosity && { textVerbosity: textVerbosity }),
-                }
-              }
+            const result = streamText({
+              model: aiSdkModel as any,
+              messages: aiMessages,
+              temperature: 0.7,
+              maxRetries: 2,
             })
-          })
 
-          // AIストリームをUIMessageストリームにマージ
-          writer.merge(result.toUIMessageStream())
-
-          // フォローアップ質問生成のために完全な回答を取得
-          const fullAnswer = await result.text
+            // AIストリームをUIMessageストリームにマージ
+            writer.merge(result.toUIMessageStream())
+            fullAnswer = await result.text
+          }
 
           // フォローアップ質問を生成
           try {
-            const followUpResponse = await generateText({
-              model: model as any,
-              messages: [
-                {
-                  role: systemRole as 'system',
-                  content: `クエリと回答に基づいて、5つの自然なフォローアップ質問を生成してください。
+            const followUpSystemPrompt = `クエリと回答に基づいて、5つの自然なフォローアップ質問を生成してください。
 
-                  以下の場合のみ質問を生成してください:
-                  - 単純な挨拶や基本的な確認ではない
-                  - 自然で、無理のない質問
-                  - 本当に役立つ質問で、埋め合わせではない
-                  - トピックと利用可能なソースに焦点を当てた質問
+              以下の場合のみ質問を生成してください:
+              - 単純な挨拶や基本的な確認ではない
+              - 自然で、無理のない質問
+              - 本当に役立つ質問で、埋め合わせではない
+              - トピックと利用可能なソースに焦点を当てた質問
 
-                  クエリがフォローアップを必要としない場合は、空の応答を返してください。
-                  ${isFollowUp ? '会話履歴全体を考慮し、以前の質問を繰り返さないでください。' : ''}
-                  質問のみを返してください。1行に1つ、番号や箇条書きは不要です。
-                  日本語で質問を生成してください。`
-                },
-                {
-                  role: 'user',
-                  content: `クエリ: ${query}\n\n提供された回答: ${fullAnswer.substring(0, 500)}...\n\n${sources.length > 0 ? `利用可能なソース: ${sources.map(s => s.title).join(', ')}\n\n` : ''}このトピックについてさらに学ぶための、異なる角度からの5つの多様なフォローアップ質問を生成してください。`
-                }
-              ],
-              temperature: 0.7,
-              maxRetries: 2
-            })
+              クエリがフォローアップを必要としない場合は、空の応答を返してください。
+              ${isFollowUp ? '会話履歴全体を考慮し、以前の質問を繰り返さないでください。' : ''}
+              質問のみを返してください。1行に1つ、番号や箇条書きは不要です。
+              日本語で質問を生成してください。`
+
+            const followUpUserPrompt = `クエリ: ${query}\n\n提供された回答: ${fullAnswer.substring(0, 500)}...\n\n${sources.length > 0 ? `利用可能なソース: ${sources.map(s => s.title).join(', ')}\n\n` : ''}このトピックについてさらに学ぶための、異なる角度からの5つの多様なフォローアップ質問を生成してください。`
+
+            let followUpText = ''
+
+            if (useDirectFetch) {
+              // GPT-5: 直接fetchで生成
+              followUpText = await generateOpenAIResponses(
+                openaiApiKey!,
+                openaiBaseUrl,
+                openaiModel,
+                [
+                  { role: systemRole, content: followUpSystemPrompt },
+                  { role: 'user', content: followUpUserPrompt }
+                ],
+                { supportsReasoning, supportsVerbosity }
+              )
+            } else {
+              // AI SDK
+              const followUpResponse = await generateText({
+                model: aiSdkModel as any,
+                messages: [
+                  { role: systemRole as 'system', content: followUpSystemPrompt },
+                  { role: 'user', content: followUpUserPrompt }
+                ],
+                temperature: 0.7,
+                maxRetries: 2
+              })
+              followUpText = followUpResponse.text
+            }
 
             // フォローアップ質問を処理
-            const followUpQuestions = followUpResponse.text
+            const followUpQuestions = followUpText
               .split('\n')
               .map((q: string) => q.trim())
               .filter((q: string) => q.length > 0)
@@ -339,7 +509,7 @@ export async function POST(request: Request) {
               data: { questions: followUpQuestions }
             })
           } catch (followUpError) {
-            // フォローアップ質問の生成エラー（無視）
+            console.warn('[FollowUp] Error:', followUpError)
           }
 
         } catch (error) {
