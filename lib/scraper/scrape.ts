@@ -1,10 +1,10 @@
 /**
  * 内蔵ウェブスクレイパー
  * Firecrawlのスクレイピング機能を内包した実装
- * Vercel Serverless互換（puppeteer不要）
+ * Vercel Serverless互換（cheerio使用）
  */
 
-import { JSDOM } from 'jsdom'
+import * as cheerio from 'cheerio'
 import TurndownService from 'turndown'
 
 // スクレイピング結果の型定義
@@ -56,12 +56,11 @@ function getRandomUserAgent(): string {
 }
 
 // HTMLをクリーンアップ
-function cleanHtml(document: Document): void {
+function cleanHtml($: cheerio.CheerioAPI): void {
   // 不要な要素を削除
   for (const selector of SELECTORS_TO_REMOVE) {
     try {
-      const elements = document.querySelectorAll(selector)
-      elements.forEach(el => el.remove())
+      $(selector).remove()
     } catch {
       // セレクタが無効な場合は無視
     }
@@ -69,7 +68,7 @@ function cleanHtml(document: Document): void {
 }
 
 // メインコンテンツを抽出
-function extractMainContent(document: Document): string {
+function extractMainContent($: cheerio.CheerioAPI): string {
   // メインコンテンツ候補を探す
   const mainSelectors = [
     'main',
@@ -85,18 +84,21 @@ function extractMainContent(document: Document): string {
   ]
 
   for (const selector of mainSelectors) {
-    const element = document.querySelector(selector)
-    if (element && element.textContent && element.textContent.trim().length > 100) {
-      return element.innerHTML
+    const element = $(selector)
+    if (element.length > 0) {
+      const text = element.text().trim()
+      if (text.length > 100) {
+        return element.html() || ''
+      }
     }
   }
 
   // 見つからない場合はbodyを使用
-  return document.body?.innerHTML || ''
+  return $('body').html() || ''
 }
 
 // メタデータを抽出
-function extractMetadata(document: Document, url: string): {
+function extractMetadata($: cheerio.CheerioAPI, url: string): {
   title: string
   description?: string
   favicon?: string
@@ -104,15 +106,16 @@ function extractMetadata(document: Document, url: string): {
   siteName?: string
 } {
   const getMetaContent = (name: string): string | undefined => {
-    const meta = document.querySelector(`meta[name="${name}"], meta[property="${name}"]`) as HTMLMetaElement
-    return meta?.content
+    const content = $(`meta[name="${name}"]`).attr('content') ||
+                   $(`meta[property="${name}"]`).attr('content')
+    return content || undefined
   }
 
   // タイトル取得
   const title =
     getMetaContent('og:title') ||
     getMetaContent('twitter:title') ||
-    document.querySelector('title')?.textContent?.trim() ||
+    $('title').text().trim() ||
     'Untitled'
 
   // 説明取得
@@ -127,16 +130,22 @@ function extractMetadata(document: Document, url: string): {
     getMetaContent('twitter:image')
 
   // サイト名取得
-  const siteName =
-    getMetaContent('og:site_name') ||
-    new URL(url).hostname.replace('www.', '')
+  let siteName = getMetaContent('og:site_name')
+  if (!siteName) {
+    try {
+      siteName = new URL(url).hostname.replace('www.', '')
+    } catch {
+      siteName = undefined
+    }
+  }
 
   // Favicon取得
   let favicon: string | undefined
-  const faviconLink = document.querySelector('link[rel="icon"], link[rel="shortcut icon"]') as HTMLLinkElement
-  if (faviconLink?.href) {
+  const faviconHref = $('link[rel="icon"]').attr('href') ||
+                      $('link[rel="shortcut icon"]').attr('href')
+  if (faviconHref) {
     try {
-      favicon = new URL(faviconLink.href, url).href
+      favicon = new URL(faviconHref, url).href
     } catch {
       favicon = undefined
     }
@@ -229,24 +238,23 @@ export async function scrapeUrl(url: string, options: {
       html = html.slice(0, maxContentLength)
     }
 
-    const dom = new JSDOM(html, { url })
-    const document = dom.window.document
+    const $ = cheerio.load(html, { baseURI: url })
 
     // メタデータを抽出
-    const metadata = extractMetadata(document, url)
+    const metadata = extractMetadata($, url)
 
     // HTMLをクリーンアップ
-    cleanHtml(document)
+    cleanHtml($)
 
     // メインコンテンツを抽出
-    const mainContent = extractMainContent(document)
+    const mainContent = extractMainContent($)
 
     // Markdownに変換
     const markdown = htmlToMarkdown(mainContent)
 
     // テキストコンテンツを抽出
-    const tempDom = new JSDOM(mainContent)
-    const textContent = tempDom.window.document.body?.textContent?.trim() || ''
+    const $temp = cheerio.load(mainContent)
+    const textContent = $temp.text().trim()
 
     return {
       url,
