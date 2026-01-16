@@ -62,9 +62,12 @@ export async function POST(request: Request) {
 
     // 使用するモデルを選択（GPT-5系はResponses APIを使用）
     const isGpt5Model = openaiModel.startsWith('gpt-5')
-    // 推論サポート: gpt-5.2（proは除く）、gpt-5-mini、gpt-5-nano
-    // gpt-5.2-proは推論オプションなし
-    const supportsReasoning = (openaiModel === 'gpt-5.2' || openaiModel.startsWith('gpt-5-mini') || openaiModel.startsWith('gpt-5-nano'))
+    // gpt-5.2-proはreasoning/verbosityどちらも非対応
+    const isProModel = openaiModel === 'gpt-5.2-pro'
+    // 推論サポート: gpt-5.2、gpt-5-mini、gpt-5-nano（proは除く）
+    const supportsReasoning = !isProModel && (openaiModel === 'gpt-5.2' || openaiModel.startsWith('gpt-5-mini') || openaiModel.startsWith('gpt-5-nano'))
+    // verbosityサポート: proモデル以外
+    const supportsVerbosity = !isProModel
     const model = provider === 'openai' && openai
       ? (isGpt5Model ? openai.responses(openaiModel) : openai(openaiModel))
       : groq
@@ -274,13 +277,12 @@ export async function POST(request: Request) {
             messages: aiMessages,
             temperature: 0.7,
             maxRetries: 2,
-            // GPT-5.2 Responses API用のパラメータ（reasoning対応モデルのみ）
-            ...(isGpt5Model && {
+            // GPT-5 Responses API用のパラメータ（対応モデルのみ）
+            ...(isGpt5Model && (supportsReasoning || supportsVerbosity) && {
               providerOptions: {
                 openai: {
-                  // GPT-5.2系のみreasoningをサポート（gpt-5-mini, gpt-5-nanoは非対応）
                   ...(supportsReasoning && { reasoningEffort: reasoningEffort }),
-                  textVerbosity: textVerbosity,
+                  ...(supportsVerbosity && { textVerbosity: textVerbosity }),
                 }
               }
             })

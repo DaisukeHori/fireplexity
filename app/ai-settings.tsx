@@ -18,6 +18,7 @@ export interface ModelConfig {
   label: string
   description: string
   supportsReasoning: boolean
+  supportsVerbosity: boolean
   reasoningOptions?: ReasoningEffort[]
 }
 
@@ -27,19 +28,22 @@ export const AI_MODELS: ModelConfig[] = [
     label: 'GPT-5.2',
     description: '最新・高性能',
     supportsReasoning: true,
+    supportsVerbosity: true,
     reasoningOptions: ['none', 'low', 'medium', 'high', 'xhigh']
   },
   {
     value: 'gpt-5.2-pro',
     label: 'GPT-5.2 Pro',
     description: '最高性能',
-    supportsReasoning: false  // 推論オプションなし
+    supportsReasoning: false,
+    supportsVerbosity: false  // reasoning, verbosityともに非対応
   },
   {
     value: 'gpt-5-mini',
     label: 'GPT-5 Mini',
     description: '高速・軽量',
     supportsReasoning: true,
+    supportsVerbosity: true,
     reasoningOptions: ['minimal', 'low', 'medium', 'high']
   },
   {
@@ -47,6 +51,7 @@ export const AI_MODELS: ModelConfig[] = [
     label: 'GPT-5 Nano',
     description: '超高速',
     supportsReasoning: true,
+    supportsVerbosity: true,
     reasoningOptions: ['minimal', 'low', 'medium', 'high']
   },
 ]
@@ -163,46 +168,48 @@ export function AISettingsPanel({ settings, onSettingsChange }: AISettingsProps)
             </div>
           )}
 
-          {/* 推論非対応モデルの場合のメッセージ */}
-          {currentModelConfig && !currentModelConfig.supportsReasoning && (
+          {/* 設定非対応モデルの場合のメッセージ */}
+          {currentModelConfig && !currentModelConfig.supportsReasoning && !currentModelConfig.supportsVerbosity && (
             <div className="mb-4">
               <p className="text-xs text-zinc-400 dark:text-zinc-500 italic">
-                このモデルは推論設定に対応していません
+                このモデルは詳細設定に対応していません
               </p>
             </div>
           )}
 
-          {/* Text Verbosity */}
-          <div>
-            <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-2">
-              回答の詳しさ
-            </label>
-            <div className="flex gap-1">
-              {[
-                { value: 'terse', label: '簡潔', description: '要点のみ' },
-                { value: 'medium', label: '標準', description: 'バランス' },
-                { value: 'verbose', label: '詳細', description: '詳しく説明' },
-              ].map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() => onSettingsChange({ ...settings, textVerbosity: option.value as AISettings['textVerbosity'] })}
-                  className={`flex-1 px-2 py-2 text-xs rounded-lg transition-colors ${
-                    settings.textVerbosity === option.value
-                      ? 'bg-[#ff4d00] text-white'
-                      : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
-                  }`}
-                  title={option.description}
-                >
-                  {option.label}
-                </button>
-              ))}
+          {/* Text Verbosity - 対応モデルのみ表示 */}
+          {currentModelConfig?.supportsVerbosity && (
+            <div>
+              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-2">
+                回答の詳しさ
+              </label>
+              <div className="flex gap-1">
+                {[
+                  { value: 'terse', label: '簡潔', description: '要点のみ' },
+                  { value: 'medium', label: '標準', description: 'バランス' },
+                  { value: 'verbose', label: '詳細', description: '詳しく説明' },
+                ].map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => onSettingsChange({ ...settings, textVerbosity: option.value as AISettings['textVerbosity'] })}
+                    className={`flex-1 px-2 py-2 text-xs rounded-lg transition-colors ${
+                      settings.textVerbosity === option.value
+                        ? 'bg-[#ff4d00] text-white'
+                        : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                    }`}
+                    title={option.description}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-zinc-500 dark:text-zinc-500 mt-1">
+                {settings.textVerbosity === 'terse' && '要点を簡潔に回答'}
+                {settings.textVerbosity === 'medium' && '適度な詳しさで回答'}
+                {settings.textVerbosity === 'verbose' && '詳細な説明付きで回答'}
+              </p>
             </div>
-            <p className="text-xs text-zinc-500 dark:text-zinc-500 mt-1">
-              {settings.textVerbosity === 'terse' && '要点を簡潔に回答'}
-              {settings.textVerbosity === 'medium' && '適度な詳しさで回答'}
-              {settings.textVerbosity === 'verbose' && '詳細な説明付きで回答'}
-            </p>
-          </div>
+          )}
         </div>
       )}
     </div>
