@@ -3,26 +3,91 @@
 import { useState } from 'react'
 import { Settings, ChevronDown, ChevronUp } from 'lucide-react'
 
+export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high' | 'xhigh'
+export type TextVerbosity = 'terse' | 'medium' | 'verbose'
+
 export interface AISettings {
   model: string
-  reasoningEffort: 'minimal' | 'medium' | 'high'
-  textVerbosity: 'terse' | 'medium' | 'verbose'
+  reasoningEffort: ReasoningEffort
+  textVerbosity: TextVerbosity
 }
 
-export const AI_MODELS = [
-  { value: 'gpt-5.2', label: 'GPT-5.2', description: '最新・高性能' },
-  { value: 'gpt-5.2-pro', label: 'GPT-5.2 Pro', description: '最高性能' },
-  { value: 'gpt-5-mini', label: 'GPT-5 Mini', description: '高速・軽量' },
-  { value: 'gpt-5-nano', label: 'GPT-5 Nano', description: '超高速' },
-] as const
+// モデルごとの設定
+export interface ModelConfig {
+  value: string
+  label: string
+  description: string
+  supportsReasoning: boolean
+  reasoningOptions?: ReasoningEffort[]
+}
+
+export const AI_MODELS: ModelConfig[] = [
+  {
+    value: 'gpt-5.2',
+    label: 'GPT-5.2',
+    description: '最新・高性能',
+    supportsReasoning: true,
+    reasoningOptions: ['none', 'low', 'medium', 'high', 'xhigh']
+  },
+  {
+    value: 'gpt-5.2-pro',
+    label: 'GPT-5.2 Pro',
+    description: '最高性能',
+    supportsReasoning: true,
+    reasoningOptions: ['medium', 'high', 'xhigh']
+  },
+  {
+    value: 'gpt-5-mini',
+    label: 'GPT-5 Mini',
+    description: '高速・軽量',
+    supportsReasoning: false
+  },
+  {
+    value: 'gpt-5-nano',
+    label: 'GPT-5 Nano',
+    description: '超高速',
+    supportsReasoning: false
+  },
+]
+
+// モデルの設定を取得するヘルパー関数
+export function getModelConfig(modelValue: string): ModelConfig | undefined {
+  return AI_MODELS.find(m => m.value === modelValue)
+}
 
 interface AISettingsProps {
   settings: AISettings
   onSettingsChange: (settings: AISettings) => void
 }
 
+// 推論の深さのラベル定義
+const REASONING_LABELS: Record<ReasoningEffort, { label: string; description: string }> = {
+  none: { label: 'なし', description: '推論なし・最速' },
+  low: { label: '軽量', description: '高速・低コスト' },
+  medium: { label: '標準', description: 'バランス' },
+  high: { label: '深い', description: '高精度' },
+  xhigh: { label: '最深', description: '最高精度' },
+}
+
 export function AISettingsPanel({ settings, onSettingsChange }: AISettingsProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const currentModelConfig = getModelConfig(settings.model)
+
+  // モデル変更時に推論設定を調整
+  const handleModelChange = (modelValue: string) => {
+    const newModelConfig = getModelConfig(modelValue)
+    let newReasoningEffort = settings.reasoningEffort
+
+    if (!newModelConfig?.supportsReasoning) {
+      // 推論をサポートしないモデルの場合、デフォルト値を設定（APIには送らない）
+      newReasoningEffort = 'medium'
+    } else if (newModelConfig.reasoningOptions && !newModelConfig.reasoningOptions.includes(settings.reasoningEffort)) {
+      // 現在の設定が新しいモデルでサポートされていない場合、デフォルトに調整
+      newReasoningEffort = newModelConfig.reasoningOptions.includes('medium') ? 'medium' : newModelConfig.reasoningOptions[0]
+    }
+
+    onSettingsChange({ ...settings, model: modelValue, reasoningEffort: newReasoningEffort })
+  }
 
   return (
     <div className="relative">
@@ -51,7 +116,7 @@ export function AISettingsPanel({ settings, onSettingsChange }: AISettingsProps)
               {AI_MODELS.map((model) => (
                 <button
                   key={model.value}
-                  onClick={() => onSettingsChange({ ...settings, model: model.value })}
+                  onClick={() => handleModelChange(model.value)}
                   className={`px-2 py-2 text-xs rounded-lg transition-colors ${
                     settings.model === model.value
                       ? 'bg-[#ff4d00] text-white'
@@ -64,41 +129,46 @@ export function AISettingsPanel({ settings, onSettingsChange }: AISettingsProps)
               ))}
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-500 mt-1">
-              {AI_MODELS.find(m => m.value === settings.model)?.description || ''}
+              {currentModelConfig?.description || ''}
             </p>
           </div>
 
-          {/* Reasoning Effort */}
-          <div className="mb-4">
-            <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-2">
-              推論の深さ
-            </label>
-            <div className="flex gap-1">
-              {[
-                { value: 'minimal', label: '軽量', description: '高速・低コスト' },
-                { value: 'medium', label: '標準', description: 'バランス' },
-                { value: 'high', label: '深い', description: '高精度' },
-              ].map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() => onSettingsChange({ ...settings, reasoningEffort: option.value as AISettings['reasoningEffort'] })}
-                  className={`flex-1 px-2 py-2 text-xs rounded-lg transition-colors ${
-                    settings.reasoningEffort === option.value
-                      ? 'bg-[#ff4d00] text-white'
-                      : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
-                  }`}
-                  title={option.description}
-                >
-                  {option.label}
-                </button>
-              ))}
+          {/* Reasoning Effort - 対応モデルのみ表示 */}
+          {currentModelConfig?.supportsReasoning && currentModelConfig.reasoningOptions && (
+            <div className="mb-4">
+              <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-400 mb-2">
+                推論の深さ
+              </label>
+              <div className="flex gap-1 flex-wrap">
+                {currentModelConfig.reasoningOptions.map((effort) => (
+                  <button
+                    key={effort}
+                    onClick={() => onSettingsChange({ ...settings, reasoningEffort: effort })}
+                    className={`flex-1 min-w-[3rem] px-2 py-2 text-xs rounded-lg transition-colors ${
+                      settings.reasoningEffort === effort
+                        ? 'bg-[#ff4d00] text-white'
+                        : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                    }`}
+                    title={REASONING_LABELS[effort].description}
+                  >
+                    {REASONING_LABELS[effort].label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-zinc-500 dark:text-zinc-500 mt-1">
+                {REASONING_LABELS[settings.reasoningEffort]?.description || ''}
+              </p>
             </div>
-            <p className="text-xs text-zinc-500 dark:text-zinc-500 mt-1">
-              {settings.reasoningEffort === 'minimal' && '高速レスポンス、簡単な質問向け'}
-              {settings.reasoningEffort === 'medium' && 'バランスの取れた推論'}
-              {settings.reasoningEffort === 'high' && '複雑な問題に深く考える'}
-            </p>
-          </div>
+          )}
+
+          {/* 推論非対応モデルの場合のメッセージ */}
+          {currentModelConfig && !currentModelConfig.supportsReasoning && (
+            <div className="mb-4">
+              <p className="text-xs text-zinc-400 dark:text-zinc-500 italic">
+                このモデルは推論設定に対応していません
+              </p>
+            </div>
+          )}
 
           {/* Text Verbosity */}
           <div>

@@ -62,6 +62,8 @@ export async function POST(request: Request) {
 
     // 使用するモデルを選択（GPT-5.2はResponses APIを使用）
     const isGpt5Model = openaiModel.startsWith('gpt-5')
+    // GPT-5.2系のみreasoningをサポート（gpt-5-mini, gpt-5-nanoはサポートしない）
+    const supportsReasoning = openaiModel.startsWith('gpt-5.2')
     const model = provider === 'openai' && openai
       ? (isGpt5Model ? openai.responses(openaiModel) : openai(openaiModel))
       : groq
@@ -271,11 +273,12 @@ export async function POST(request: Request) {
             messages: aiMessages,
             temperature: 0.7,
             maxRetries: 2,
-            // GPT-5.2 Responses API用のパラメータ
+            // GPT-5.2 Responses API用のパラメータ（reasoning対応モデルのみ）
             ...(isGpt5Model && {
               providerOptions: {
                 openai: {
-                  reasoningEffort: reasoningEffort,
+                  // GPT-5.2系のみreasoningをサポート（gpt-5-mini, gpt-5-nanoは非対応）
+                  ...(supportsReasoning && { reasoningEffort: reasoningEffort }),
                   textVerbosity: textVerbosity,
                 }
               }
