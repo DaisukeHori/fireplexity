@@ -21,14 +21,20 @@ async function* streamOpenAIResponses(
     textVerbosity?: string
     supportsReasoning: boolean
     supportsVerbosity: boolean
+    isProModel: boolean
   }
 ): AsyncGenerator<string, void, unknown> {
   const url = baseUrl ? `${baseUrl}/responses` : 'https://api.openai.com/v1/responses'
 
-  // メッセージをResponses API形式に変換
+  // メッセージをResponses API形式に変換（content配列形式）
   const input = messages.map(m => ({
     role: m.role,
-    content: m.content
+    content: [
+      {
+        type: 'input_text',
+        text: m.content
+      }
+    ]
   }))
 
   // リクエストボディを構築
@@ -36,17 +42,30 @@ async function* streamOpenAIResponses(
     model,
     input,
     stream: true,
+    store: true,
   }
 
-  // 推論対応モデルのみreasoningパラメータを追加
-  if (options.supportsReasoning && options.reasoningEffort && options.reasoningEffort !== 'none') {
-    requestBody.reasoning = { effort: options.reasoningEffort }
-  }
-
-  // verbosity対応モデルのみtextパラメータを追加
+  // textパラメータ（verbosity対応モデルのみverbosityを含める）
   if (options.supportsVerbosity && options.textVerbosity) {
     requestBody.text = {
+      format: { type: 'text' },
+      verbosity: options.textVerbosity
+    }
+  } else {
+    requestBody.text = {
       format: { type: 'text' }
+    }
+  }
+
+  // reasoningパラメータ
+  if (options.isProModel) {
+    // gpt-5.2-pro: summaryのみ
+    requestBody.reasoning = { summary: 'auto' }
+  } else if (options.supportsReasoning && options.reasoningEffort && options.reasoningEffort !== 'none') {
+    // 他のモデル: effort + summary
+    requestBody.reasoning = {
+      effort: options.reasoningEffort,
+      summary: 'auto'
     }
   }
 
@@ -113,19 +132,37 @@ async function generateOpenAIResponses(
   options: {
     supportsReasoning: boolean
     supportsVerbosity: boolean
+    isProModel: boolean
   }
 ): Promise<string> {
   const url = baseUrl ? `${baseUrl}/responses` : 'https://api.openai.com/v1/responses'
 
+  // メッセージをResponses API形式に変換（content配列形式）
   const input = messages.map(m => ({
     role: m.role,
-    content: m.content
+    content: [
+      {
+        type: 'input_text',
+        text: m.content
+      }
+    ]
   }))
 
   const requestBody: Record<string, unknown> = {
     model,
     input,
     stream: false,
+    store: true,
+    text: {
+      format: { type: 'text' }
+    },
+  }
+
+  // reasoningパラメータ
+  if (options.isProModel) {
+    requestBody.reasoning = { summary: 'auto' }
+  } else if (options.supportsReasoning) {
+    requestBody.reasoning = { effort: 'medium', summary: 'auto' }
   }
 
   const response = await fetch(url, {
@@ -419,7 +456,7 @@ export async function POST(request: Request) {
               openaiBaseUrl,
               openaiModel,
               directMessages,
-              { reasoningEffort, textVerbosity, supportsReasoning, supportsVerbosity }
+              { reasoningEffort, textVerbosity, supportsReasoning, supportsVerbosity, isProModel }
             )
 
             for await (const chunk of textStream) {
@@ -479,7 +516,7 @@ export async function POST(request: Request) {
                   { role: systemRole, content: followUpSystemPrompt },
                   { role: 'user', content: followUpUserPrompt }
                 ],
-                { supportsReasoning, supportsVerbosity }
+                { supportsReasoning, supportsVerbosity, isProModel }
               )
             } else {
               // AI SDK
