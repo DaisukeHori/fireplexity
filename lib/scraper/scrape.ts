@@ -221,13 +221,13 @@ export async function scrapeUrl(url: string, options: {
     clearTimeout(timeoutId)
 
     if (!response.ok) {
-      console.error(`Failed to fetch ${url}: ${response.status}`)
+      // 403/404等は静かにスキップ（ログ出力しない）
       return null
     }
 
     const contentType = response.headers.get('content-type') || ''
     if (!contentType.includes('text/html')) {
-      console.error(`Unsupported content type for ${url}: ${contentType}`)
+      // HTML以外は静かにスキップ
       return null
     }
 
@@ -266,12 +266,8 @@ export async function scrapeUrl(url: string, options: {
       ogImage: metadata.ogImage,
       siteName: metadata.siteName,
     }
-  } catch (error) {
-    if ((error as Error).name === 'AbortError') {
-      console.error(`Timeout scraping ${url}`)
-    } else {
-      console.error(`Error scraping ${url}:`, error)
-    }
+  } catch {
+    // タイムアウトやネットワークエラーは静かにスキップ
     return null
   }
 }
