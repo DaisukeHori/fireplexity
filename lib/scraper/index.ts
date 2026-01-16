@@ -79,6 +79,14 @@ export async function integratedSearch(
       const urls = searchResults.web.map(r => r.url)
       const scrapedResults = await scrapeUrls(urls, { timeout: 8000 })
 
+      // スクレイプ結果のログ
+      console.log('[Scrape] Results summary:')
+      for (const url of urls) {
+        const scraped = scrapedResults.find(s => s.url === url)
+        const charCount = scraped?.markdown?.length || scraped?.content?.length || 0
+        console.log(`  - ${new URL(url).hostname}: ${charCount} chars${charCount === 0 ? ' (failed - using description fallback)' : ''}`)
+      }
+
       // 検索結果とスクレイピング結果をマージ
       webResultsWithContent = searchResults.web.map(searchResult => {
         const scraped = scrapedResults.find(s => s.url === searchResult.url)
@@ -90,12 +98,28 @@ export async function integratedSearch(
             siteName = 'unknown'
           }
         }
+
+        // スクレイプ失敗時は検索結果のdescriptionをフォールバックとして使用
+        const hasScrapedContent = (scraped?.markdown && scraped.markdown.length > 50) ||
+                                   (scraped?.content && scraped.content.length > 50)
+
+        let markdown = scraped?.markdown
+        let content = scraped?.content
+
+        // スクレイプ失敗時のフォールバック
+        if (!hasScrapedContent && searchResult.description) {
+          // 検索結果のdescriptionをコンテンツとして使用
+          markdown = `# ${searchResult.title}\n\n${searchResult.description}`
+          content = searchResult.description
+          console.log(`[Scrape] Fallback used for ${siteName}: description (${searchResult.description?.length || 0} chars)`)
+        }
+
         return {
           url: searchResult.url,
           title: scraped?.title || searchResult.title,
           description: scraped?.description || searchResult.description,
-          markdown: scraped?.markdown,
-          content: scraped?.content,
+          markdown,
+          content,
           favicon: scraped?.favicon,
           image: scraped?.ogImage,
           siteName,
@@ -114,6 +138,9 @@ export async function integratedSearch(
           url: r.url,
           title: r.title,
           description: r.description,
+          // descriptionをフォールバックとして使用
+          markdown: r.description ? `# ${r.title}\n\n${r.description}` : undefined,
+          content: r.description,
           siteName,
         }
       })
