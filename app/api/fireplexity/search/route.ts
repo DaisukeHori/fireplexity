@@ -526,12 +526,14 @@ export async function POST(request: Request) {
             )
 
             // writerに直接テキストを書き込む
+            const messageId = `msg-gpt5-${Date.now()}`
             for await (const chunk of textStream) {
               fullAnswer += chunk
-              // text-deltaとして直接書き込み
-              ;(writer as any).write({
+              // text-deltaとして直接書き込み（delta + id プロパティが必要）
+              writer.write({
                 type: 'text-delta',
-                textDelta: chunk
+                delta: chunk,
+                id: messageId
               })
             }
 
