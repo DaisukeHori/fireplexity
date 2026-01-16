@@ -118,19 +118,39 @@ async function* streamOpenAIResponses(
 
         try {
           const parsed = JSON.parse(data)
-          // 最初の数チャンクをログ出力
-          if (chunkCount < 3) {
-            console.log('[OpenAI Responses API] Chunk:', parsed.type, JSON.stringify(parsed).substring(0, 200))
+          // 最初の数チャンクとテキストデルタをログ出力
+          if (chunkCount < 5 || parsed.type?.includes('text') || parsed.type?.includes('delta')) {
+            console.log('[OpenAI Responses API] Chunk:', parsed.type, JSON.stringify(parsed).substring(0, 300))
           }
           chunkCount++
 
           // Responses APIのストリーミング形式を処理
+          // テキスト出力のデルタ
           if (parsed.type === 'response.output_text.delta') {
             yield parsed.delta || ''
-          } else if (parsed.type === 'response.content_part.delta' && parsed.delta?.text) {
+          }
+          // コンテンツパートのデルタ
+          else if (parsed.type === 'response.content_part.delta' && parsed.delta?.text) {
             yield parsed.delta.text
-          } else if (parsed.choices?.[0]?.delta?.content) {
-            // 旧Chat Completions形式のフォールバック
+          }
+          // 出力アイテムのテキストデルタ
+          else if (parsed.type === 'response.output_item.delta' && parsed.delta?.content) {
+            yield parsed.delta.content
+          }
+          // テキストデルタ（一般的な形式）
+          else if (parsed.type === 'response.text.delta' && parsed.delta) {
+            yield parsed.delta
+          }
+          // アウトプットテキストのデルタ（別形式）
+          else if (parsed.type === 'response.output.text.delta' && parsed.delta) {
+            yield parsed.delta
+          }
+          // contentフィールドに直接テキストがある場合
+          else if (parsed.delta?.content?.[0]?.text) {
+            yield parsed.delta.content[0].text
+          }
+          // 旧Chat Completions形式のフォールバック
+          else if (parsed.choices?.[0]?.delta?.content) {
             yield parsed.choices[0].delta.content
           }
         } catch {
