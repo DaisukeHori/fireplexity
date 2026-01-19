@@ -8,48 +8,26 @@ export { search, type SearchResponse, type WebSearchResult, type NewsSearchResul
 export { scrapeUrl, scrapeUrls, type ScrapeResult } from './scrape'
 
 import { search, SearchResponse } from './search'
-import { scrapeUrls, ScrapeResult } from './scrape'
+import { scrapeUrl, scrapeUrls, ScrapeResult } from './scrape'
 
-// 並列スクレイプAPI呼び出し用のベースURL取得
-function getBaseUrl(): string {
-  // Vercel環境
-  if (process.env.VERCEL_URL) {
-    return `https://${process.env.VERCEL_URL}`
-  }
-  // ローカル環境
-  return process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
-}
-
-// 並列でスクレイプAPIを呼び出す
+// 並列でスクレイプを実行（Promise.allで同時実行）
 async function scrapeUrlsParallel(urls: string[], timeout: number = 15000): Promise<ScrapeResult[]> {
-  const baseUrl = getBaseUrl()
-  const scrapeEndpoint = `${baseUrl}/api/scrape`
-
-  console.log(`[Scrape Parallel] Calling ${urls.length} parallel scrape functions`)
+  console.log(`[Scrape Parallel] Starting ${urls.length} concurrent scrapes`)
 
   const results = await Promise.all(
     urls.map(async (url) => {
       try {
-        const response = await fetch(scrapeEndpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url, timeout, usePuppeteer: true }),
+        const result = await scrapeUrl(url, {
+          timeout,
+          usePuppeteer: true,
         })
 
-        if (!response.ok) {
-          console.warn(`[Scrape Parallel] Failed for ${url}: ${response.status}`)
+        if (!result) {
+          console.log(`[Scrape Parallel] No result for ${new URL(url).hostname}`)
           return null
         }
 
-        const data = await response.json()
-
-        // エラーやフォールバックの場合
-        if (data.error || data.fallback) {
-          console.log(`[Scrape Parallel] Fallback for ${new URL(url).hostname}`)
-          return null
-        }
-
-        return data as ScrapeResult
+        return result
       } catch (error) {
         console.warn(`[Scrape Parallel] Error for ${url}:`, (error as Error).message)
         return null
