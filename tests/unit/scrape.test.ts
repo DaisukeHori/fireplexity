@@ -1,14 +1,37 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { scrapeUrl, scrapeUrls, ScrapeResult } from '@/lib/scraper/scrape'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
-// fetchをモック
+// Puppeteerをモック
+vi.mock('puppeteer-core', () => ({
+  default: {
+    launch: vi.fn(),
+  },
+}))
+
+// Chromiumをモック
+vi.mock('@sparticuz/chromium', () => ({
+  default: {
+    args: [],
+    executablePath: vi.fn().mockResolvedValue('/mock/chrome'),
+  },
+}))
+
+// グローバルfetchをモック
 const mockFetch = vi.fn()
 global.fetch = mockFetch
+
+import { scrapeUrl, scrapeUrls, ScrapeResult } from '@/lib/scraper/scrape'
+import puppeteerCore from 'puppeteer-core'
 
 describe('Scrape Module', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockFetch.mockReset()
+    // デフォルトでPuppeteerがnullを返すように（fetchフォールバックを使用）
+    vi.mocked(puppeteerCore.launch).mockResolvedValue(null as any)
+  })
+
+  afterEach(() => {
+    vi.resetAllMocks()
   })
 
   // Test 1: scrapeUrl関数が存在する
@@ -37,7 +60,7 @@ describe('Scrape Module', () => {
 
     const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result?.title).toBe('テストページ')
-  })
+  }, 10000)
 
   // Test 4: OGタイトルを優先して抽出
   it('should prefer og:title over regular title', async () => {

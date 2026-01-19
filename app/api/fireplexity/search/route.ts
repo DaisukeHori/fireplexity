@@ -6,6 +6,16 @@ import type { ModelMessage } from 'ai'
 import { detectCompanyTicker } from '@/lib/company-ticker-map'
 import { selectRelevantContent } from '@/lib/content-selection'
 import { integratedSearch } from '@/lib/scraper'
+import {
+  multiLayerSearch,
+  analyzeQueryWithLLM,
+  evaluateCoverageWithLLM,
+  analyzeQuerySimple,
+  type MultiLayerSearchResult,
+  type SourceInfo,
+  type NewsInfo,
+  type QueryAnalysis
+} from '@/lib/multi-layer-search'
 
 // AIプロバイダーの型定義
 type AIProvider = 'groq' | 'openai'
@@ -286,21 +296,48 @@ async function handleGPT5Request(params: {
     async start(controller) {
       try {
         // ステータス送信
-        controller.enqueue(encodeDataPart('data-status', { id: 'status-1', data: { message: '検索を開始しています...' } }))
+        controller.enqueue(encodeDataPart('data-status', { id: 'status-1', data: { message: 'クエリを分析中...' } }))
+
+        // クエリ分析（LLMを使用）
+        let queryAnalysis: QueryAnalysis
+        try {
+          queryAnalysis = await analyzeQueryWithLLM(query, async (prompt) => {
+            return await generateOpenAIResponses(
+              openaiApiKey,
+              openaiBaseUrl,
+              openaiModel,
+              [{ role: 'user', content: prompt }],
+              { supportsReasoning: false, supportsVerbosity: false, isProModel: false }
+            )
+          })
+        } catch (error) {
+          console.warn('[GPT-5 Handler] Query analysis failed:', error)
+          queryAnalysis = analyzeQuerySimple(query)
+        }
+
+        // クエリ分析結果を送信
+        controller.enqueue(encodeDataPart('data-query-analysis', {
+          id: 'query-analysis-1',
+          data: {
+            intent: queryAnalysis.intent,
+            complexity: queryAnalysis.complexity,
+            suggestedDepth: queryAnalysis.suggestedDepth,
+            aspects: queryAnalysis.aspects
+          }
+        }))
 
         // 検索実行
-        controller.enqueue(encodeDataPart('data-status', { id: 'status-2', data: { message: 'ウェブを検索中...' } }))
+        controller.enqueue(encodeDataPart('data-status', { id: 'status-2', data: { message: `多階層検索を実行中... (深度: ${queryAnalysis.suggestedDepth})` } }))
 
-        const searchResult = await integratedSearch(query, {
-          numResults: 6,
-          includeNews: true,
-          includeImages: true,
-          scrapeContent: true,
+        const multiLayerResult = await multiLayerSearch(query, {
+          maxLayers: queryAnalysis.suggestedDepth,
+          minCoverage: 0.7,
+          numResultsPerLayer: 4,
           braveApiKey,
         })
 
-        // 検索結果を変換
-        const sources = searchResult.web.map((item) => ({
+        // 検索結果を変換（階層情報付き）
+        const sources = multiLayerResult.allSources.map((item) => ({
           url: item.url,
           title: item.title,
           description: item.description,
@@ -309,24 +346,35 @@ async function handleGPT5Request(params: {
           favicon: item.favicon,
           image: item.image,
           siteName: item.siteName,
+          layer: item.layer,
         }))
 
-        const newsResults = searchResult.news.map((item) => ({
+        const newsResults = multiLayerResult.allNews.map((item) => ({
           url: item.url,
           title: item.title,
           description: item.description,
-          publishedDate: item.date,
+          publishedDate: item.publishedDate,
           source: item.source,
-          image: item.imageUrl,
+          image: item.image,
+          layer: item.layer,
         }))
 
-        const imageResults = searchResult.images.map((item) => ({
-          url: item.url,
-          title: item.title,
-          thumbnail: item.imageUrl,
-          source: item.source,
-          width: item.width,
-          height: item.height,
+        const imageResults = multiLayerResult.imageResults
+
+        // 検索階層情報を送信
+        controller.enqueue(encodeDataPart('data-search-layers', {
+          id: 'search-layers-1',
+          data: {
+            layers: multiLayerResult.layers.map(layer => ({
+              layer: layer.layer,
+              query: layer.query,
+              sourcesCount: layer.sources.length,
+              coverage: layer.coverage,
+              gaps: layer.gaps
+            })),
+            totalSearches: multiLayerResult.totalSearches,
+            finalCoverage: multiLayerResult.finalCoverage
+          }
         }))
 
         // ソースをデータパートとして送信
@@ -563,6 +611,7 @@ export async function POST(request: Request) {
             image?: string
             favicon?: string
             siteName?: string
+            layer?: number
           }> = []
           let newsResults: Array<{
             url: string
@@ -571,6 +620,7 @@ export async function POST(request: Request) {
             publishedDate?: string
             source?: string
             image?: string
+            layer?: number
           }> = []
           let imageResults: Array<{
             url: string
@@ -586,28 +636,87 @@ export async function POST(request: Request) {
           writer.write({
             type: 'data-status',
             id: 'status-1',
-            data: { message: '検索を開始しています...' },
+            data: { message: 'クエリを分析中...' },
             transient: true
+          })
+
+          // クエリ分析（LLMを使用）
+          let queryAnalysis: QueryAnalysis
+          try {
+            if (useDirectFetch && openaiApiKey) {
+              // LLMを使った高度な分析
+              queryAnalysis = await analyzeQueryWithLLM(query, async (prompt) => {
+                return await generateOpenAIResponses(
+                  openaiApiKey,
+                  openaiBaseUrl,
+                  openaiModel,
+                  [{ role: 'user', content: prompt }],
+                  { supportsReasoning: false, supportsVerbosity: false, isProModel: false }
+                )
+              })
+            } else {
+              queryAnalysis = analyzeQuerySimple(query)
+            }
+          } catch (error) {
+            console.warn('[QueryAnalysis] LLM analysis failed, using simple analysis:', error)
+            queryAnalysis = analyzeQuerySimple(query)
+          }
+
+          console.log('[QueryAnalysis] Result:', queryAnalysis)
+
+          // クエリ分析結果を送信
+          writer.write({
+            type: 'data-query-analysis',
+            id: 'query-analysis-1',
+            data: {
+              intent: queryAnalysis.intent,
+              complexity: queryAnalysis.complexity,
+              suggestedDepth: queryAnalysis.suggestedDepth,
+              aspects: queryAnalysis.aspects
+            }
           })
 
           writer.write({
             type: 'data-status',
             id: 'status-2',
-            data: { message: 'ウェブを検索中...' },
+            data: { message: `多階層検索を実行中... (深度: ${queryAnalysis.suggestedDepth})` },
             transient: true
           })
 
-          // 内蔵検索エンジンを使用（Brave API優先、なければDuckDuckGo）
-          const searchResult = await integratedSearch(query, {
-            numResults: 6,
-            includeNews: true,
-            includeImages: true,
-            scrapeContent: true,
+          // 多階層検索を実行
+          const multiLayerResult = await multiLayerSearch(query, {
+            maxLayers: queryAnalysis.suggestedDepth,
+            minCoverage: 0.7,
+            numResultsPerLayer: 4,
             braveApiKey,
           })
 
-          // Web検索結果を変換
-          sources = searchResult.web.map((item) => ({
+          console.log('[MultiLayerSearch] Completed:', {
+            totalSearches: multiLayerResult.totalSearches,
+            totalSources: multiLayerResult.allSources.length,
+            finalCoverage: multiLayerResult.finalCoverage,
+            layers: multiLayerResult.layers.length
+          })
+
+          // 検索階層情報を送信
+          writer.write({
+            type: 'data-search-layers',
+            id: 'search-layers-1',
+            data: {
+              layers: multiLayerResult.layers.map(layer => ({
+                layer: layer.layer,
+                query: layer.query,
+                sourcesCount: layer.sources.length,
+                coverage: layer.coverage,
+                gaps: layer.gaps
+              })),
+              totalSearches: multiLayerResult.totalSearches,
+              finalCoverage: multiLayerResult.finalCoverage
+            }
+          })
+
+          // Web検索結果を変換（階層情報付き）
+          sources = multiLayerResult.allSources.map((item) => ({
             url: item.url,
             title: item.title,
             description: item.description,
@@ -616,27 +725,22 @@ export async function POST(request: Request) {
             favicon: item.favicon,
             image: item.image,
             siteName: item.siteName,
+            layer: item.layer,
           }))
 
           // ニュース結果を変換
-          newsResults = searchResult.news.map((item) => ({
+          newsResults = multiLayerResult.allNews.map((item) => ({
             url: item.url,
             title: item.title,
             description: item.description,
-            publishedDate: item.date,
+            publishedDate: item.publishedDate,
             source: item.source,
-            image: item.imageUrl,
+            image: item.image,
+            layer: item.layer,
           }))
 
           // 画像結果を変換
-          imageResults = searchResult.images.map((item) => ({
-            url: item.url,
-            title: item.title,
-            thumbnail: item.imageUrl,
-            source: item.source,
-            width: item.width,
-            height: item.height,
-          }))
+          imageResults = multiLayerResult.imageResults
 
           // ソースをデータパートとして送信
           writer.write({

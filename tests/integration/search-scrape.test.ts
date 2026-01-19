@@ -180,9 +180,9 @@ describe('Search + Scrape Integration', () => {
       images: [],
     })
     vi.mocked(scrapeUrls).mockResolvedValue([
-      { url: 'https://site1.com', title: 'Site 1', content: 'Content 1' },
-      { url: 'https://site2.com', title: 'Site 2', content: 'Content 2' },
-      { url: 'https://site3.com', title: 'Site 3', content: 'Content 3' },
+      { url: 'https://site1.com', title: 'Site 1', content: 'Content 1 that is long enough to pass 50 chars check' },
+      { url: 'https://site2.com', title: 'Site 2', content: 'Content 2 that is long enough to pass 50 chars check' },
+      { url: 'https://site3.com', title: 'Site 3', content: 'Content 3 that is long enough to pass 50 chars check' },
     ])
 
     const result = await integratedSearch('test')
@@ -201,7 +201,7 @@ describe('Search + Scrape Integration', () => {
     vi.mocked(search).mockResolvedValue({
       web: [
         { url: 'https://success.com', title: 'Success' },
-        { url: 'https://fail.com', title: 'Fail' },
+        { url: 'https://fail.com', title: 'Fail', description: 'Fallback description' },
       ],
       news: [],
       images: [],
@@ -214,7 +214,8 @@ describe('Search + Scrape Integration', () => {
 
     expect(result.web).toHaveLength(2)
     expect(result.web[0].content).toBe(longContent)
-    expect(result.web[1].content).toBeUndefined()
+    // スクレイプ失敗時はdescriptionがフォールバックとして使われる
+    expect(result.web[1].content).toBe('Fallback description')
   })
 
   // Test 11: 日本語クエリの統合処理
@@ -258,7 +259,7 @@ describe('Search + Scrape Integration', () => {
       images: [],
     })
     vi.mocked(scrapeUrls).mockResolvedValue([
-      { url: 'https://site.com', title: 'Site', favicon: 'https://site.com/icon.ico' }
+      { url: 'https://site.com', title: 'Site', favicon: 'https://site.com/icon.ico', content: 'Some content that is long enough' }
     ])
 
     const result = await integratedSearch('test')
