@@ -1,9 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { scrapeUrl, scrapeUrls, ScrapeResult } from '@/lib/scraper/scrape'
 
+// fetchをモック
+const mockFetch = vi.fn()
+global.fetch = mockFetch
+
 describe('Scrape Module', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockFetch.mockReset()
   })
 
   // Test 1: scrapeUrl関数が存在する
@@ -24,14 +29,13 @@ describe('Scrape Module', () => {
         <body><main>コンテンツ</main></body>
       </html>
     `
-    const mockResponse = {
+    mockFetch.mockResolvedValue({
       ok: true,
       text: () => Promise.resolve(mockHtml),
-      headers: new Map([['content-type', 'text/html']]),
-    }
-    vi.mocked(global.fetch).mockResolvedValue(mockResponse as unknown as Response)
+      headers: { get: (name: string) => name === 'content-type' ? 'text/html' : null },
+    })
 
-    const result = await scrapeUrl('https://example.com')
+    const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result?.title).toBe('テストページ')
   })
 
@@ -46,14 +50,13 @@ describe('Scrape Module', () => {
         <body><main>コンテンツ</main></body>
       </html>
     `
-    const mockResponse = {
+    mockFetch.mockResolvedValue({
       ok: true,
       text: () => Promise.resolve(mockHtml),
-      headers: new Map([['content-type', 'text/html']]),
-    }
-    vi.mocked(global.fetch).mockResolvedValue(mockResponse as unknown as Response)
+      headers: { get: (name: string) => name === 'content-type' ? 'text/html' : null },
+    })
 
-    const result = await scrapeUrl('https://example.com')
+    const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result?.title).toBe('OGタイトル')
   })
 
@@ -68,46 +71,45 @@ describe('Scrape Module', () => {
         <body><main>コンテンツ</main></body>
       </html>
     `
-    const mockResponse = {
+    mockFetch.mockResolvedValue({
       ok: true,
       text: () => Promise.resolve(mockHtml),
-      headers: new Map([['content-type', 'text/html']]),
-    }
-    vi.mocked(global.fetch).mockResolvedValue(mockResponse as unknown as Response)
+      headers: { get: (name: string) => name === 'content-type' ? 'text/html' : null },
+    })
 
-    const result = await scrapeUrl('https://example.com')
+    const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result?.description).toBe('これは説明です')
   })
 
   // Test 6: HTTPエラー時にnullを返す
   it('should return null on HTTP error', async () => {
-    const mockResponse = {
+    mockFetch.mockResolvedValue({
       ok: false,
       status: 404,
-    }
-    vi.mocked(global.fetch).mockResolvedValue(mockResponse as Response)
+      headers: { get: () => null },
+    })
 
-    const result = await scrapeUrl('https://example.com')
+    const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result).toBeNull()
   })
 
   // Test 7: ネットワークエラー時にnullを返す
   it('should return null on network error', async () => {
-    vi.mocked(global.fetch).mockRejectedValue(new Error('Network error'))
+    mockFetch.mockRejectedValue(new Error('Network error'))
 
-    const result = await scrapeUrl('https://example.com')
+    const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result).toBeNull()
   })
 
   // Test 8: 非HTMLコンテンツでnullを返す
   it('should return null for non-HTML content', async () => {
-    const mockResponse = {
+    mockFetch.mockResolvedValue({
       ok: true,
-      headers: new Map([['content-type', 'application/json']]),
-    }
-    vi.mocked(global.fetch).mockResolvedValue(mockResponse as unknown as Response)
+      text: () => Promise.resolve('{"data": "json"}'),
+      headers: { get: (name: string) => name === 'content-type' ? 'application/json' : null },
+    })
 
-    const result = await scrapeUrl('https://example.com/api')
+    const result = await scrapeUrl('https://example.com/api', { usePuppeteer: false })
     expect(result).toBeNull()
   })
 
@@ -123,14 +125,13 @@ describe('Scrape Module', () => {
         </body>
       </html>
     `
-    const mockResponse = {
+    mockFetch.mockResolvedValue({
       ok: true,
       text: () => Promise.resolve(mockHtml),
-      headers: new Map([['content-type', 'text/html']]),
-    }
-    vi.mocked(global.fetch).mockResolvedValue(mockResponse as unknown as Response)
+      headers: { get: (name: string) => name === 'content-type' ? 'text/html' : null },
+    })
 
-    const result = await scrapeUrl('https://example.com')
+    const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result?.content).toContain('メインコンテンツ')
   })
 
@@ -146,14 +147,13 @@ describe('Scrape Module', () => {
         </body>
       </html>
     `
-    const mockResponse = {
+    mockFetch.mockResolvedValue({
       ok: true,
       text: () => Promise.resolve(mockHtml),
-      headers: new Map([['content-type', 'text/html']]),
-    }
-    vi.mocked(global.fetch).mockResolvedValue(mockResponse as unknown as Response)
+      headers: { get: (name: string) => name === 'content-type' ? 'text/html' : null },
+    })
 
-    const result = await scrapeUrl('https://example.com')
+    const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result?.content).toContain('記事の内容')
   })
 
@@ -165,14 +165,13 @@ describe('Scrape Module', () => {
         <body><main>コンテンツ</main></body>
       </html>
     `
-    const mockResponse = {
+    mockFetch.mockResolvedValue({
       ok: true,
       text: () => Promise.resolve(mockHtml),
-      headers: new Map([['content-type', 'text/html']]),
-    }
-    vi.mocked(global.fetch).mockResolvedValue(mockResponse as unknown as Response)
+      headers: { get: (name: string) => name === 'content-type' ? 'text/html' : null },
+    })
 
-    const results = await scrapeUrls(['https://example1.com', 'https://example2.com'])
+    const results = await scrapeUrls(['https://example1.com', 'https://example2.com'], { usePuppeteer: false })
     expect(results.length).toBe(2)
   })
 
@@ -193,14 +192,13 @@ describe('Scrape Module', () => {
         <body><main>コンテンツ</main></body>
       </html>
     `
-    const mockResponse = {
+    mockFetch.mockResolvedValue({
       ok: true,
       text: () => Promise.resolve(mockHtml),
-      headers: new Map([['content-type', 'text/html']]),
-    }
-    vi.mocked(global.fetch).mockResolvedValue(mockResponse as unknown as Response)
+      headers: { get: (name: string) => name === 'content-type' ? 'text/html' : null },
+    })
 
-    const result = await scrapeUrl('https://example.com')
+    const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result?.favicon).toContain('favicon')
   })
 
@@ -215,14 +213,13 @@ describe('Scrape Module', () => {
         <body><main>コンテンツ</main></body>
       </html>
     `
-    const mockResponse = {
+    mockFetch.mockResolvedValue({
       ok: true,
       text: () => Promise.resolve(mockHtml),
-      headers: new Map([['content-type', 'text/html']]),
-    }
-    vi.mocked(global.fetch).mockResolvedValue(mockResponse as unknown as Response)
+      headers: { get: (name: string) => name === 'content-type' ? 'text/html' : null },
+    })
 
-    const result = await scrapeUrl('https://example.com')
+    const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result?.ogImage).toBe('https://example.com/image.jpg')
   })
 
@@ -237,14 +234,13 @@ describe('Scrape Module', () => {
         <body><main>コンテンツ</main></body>
       </html>
     `
-    const mockResponse = {
+    mockFetch.mockResolvedValue({
       ok: true,
       text: () => Promise.resolve(mockHtml),
-      headers: new Map([['content-type', 'text/html']]),
-    }
-    vi.mocked(global.fetch).mockResolvedValue(mockResponse as unknown as Response)
+      headers: { get: (name: string) => name === 'content-type' ? 'text/html' : null },
+    })
 
-    const result = await scrapeUrl('https://example.com')
+    const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result?.siteName).toBe('テストサイト')
   })
 })
