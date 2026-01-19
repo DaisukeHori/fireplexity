@@ -50,6 +50,7 @@ export function ChatInterface({ messages, sources, newsResults, imageResults, fo
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
+  const isSubmittingRef = useRef(false)
   
   // Simple theme detection based on document class
   const theme = typeof window !== 'undefined' && document.documentElement.classList.contains('dark') ? 'dark' : 'light'
@@ -92,9 +93,11 @@ export function ChatInterface({ messages, sources, newsResults, imageResults, fo
 
   const handleFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!input.trim() || isLoading) return
+    if (!input.trim() || isLoading || isSubmittingRef.current) return
+
+    isSubmittingRef.current = true
     handleSubmit(e)
-    
+
     // Scroll to bottom after submitting
     setTimeout(() => {
       if (scrollContainerRef.current) {
@@ -104,14 +107,24 @@ export function ChatInterface({ messages, sources, newsResults, imageResults, fo
         })
       }
     }, 100)
+
+    // Reset the flag after a short delay
+    setTimeout(() => {
+      isSubmittingRef.current = false
+    }, 500)
   }
 
   const handleFollowUpClick = (question: string) => {
+    // Prevent duplicate submissions
+    if (isLoading || isSubmittingRef.current) return
+
     // Set the input and immediately submit
     handleInputChange({ target: { value: question } } as React.ChangeEvent<HTMLTextAreaElement>)
     // Submit the form after a brief delay to ensure input is set
     setTimeout(() => {
-      formRef.current?.requestSubmit()
+      if (!isSubmittingRef.current) {
+        formRef.current?.requestSubmit()
+      }
     }, 50)
   }
 
@@ -122,13 +135,18 @@ export function ChatInterface({ messages, sources, newsResults, imageResults, fo
   }
 
   const handleRewrite = () => {
+    // Prevent duplicate submissions
+    if (isLoading || isSubmittingRef.current) return
+
     // Get the last user message and resubmit it
     const lastUserMessage = [...messages].reverse().find(m => m.role === 'user')
     if (lastUserMessage) {
       handleInputChange({ target: { value: getMessageContent(lastUserMessage) } } as React.ChangeEvent<HTMLTextAreaElement>)
       // Submit the form
       setTimeout(() => {
-        formRef.current?.requestSubmit()
+        if (!isSubmittingRef.current) {
+          formRef.current?.requestSubmit()
+        }
       }, 100)
     }
   }

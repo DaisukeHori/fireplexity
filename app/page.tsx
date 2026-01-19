@@ -52,6 +52,9 @@ export default function FireplexityPage() {
     transport
   })
 
+  // 送信中フラグ（重複送信防止）
+  const isSubmittingRef = useRef(false)
+
   // ストリーミングデータを処理する統合されたエフェクト
   useEffect(() => {
     // レスポンス開始を処理
@@ -145,17 +148,25 @@ export default function FireplexityPage() {
 
   const handleSearch = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!input.trim()) return
+    if (!input.trim() || isSubmittingRef.current || status === 'streaming') return
 
+    isSubmittingRef.current = true
     setHasSearched(true)
     sendMessage({ text: input })
     setInput('')
+
+    // 送信完了後にフラグをリセット
+    setTimeout(() => {
+      isSubmittingRef.current = false
+    }, 500)
   }
 
   // チャットインターフェース用のサブミットハンドラー
   const handleChatSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!input.trim()) return
+    if (!input.trim() || isSubmittingRef.current || status === 'streaming') return
+
+    isSubmittingRef.current = true
 
     // 新しいクエリの前に現在のデータをmessageDataに保存
     if (messages.length > 0 && sources.length > 0) {
@@ -176,6 +187,11 @@ export default function FireplexityPage() {
 
     sendMessage({ text: input })
     setInput('')
+
+    // 送信完了後にフラグをリセット
+    setTimeout(() => {
+      isSubmittingRef.current = false
+    }, 500)
   }
 
   const isChatActive = hasSearched || messages.length > 0
