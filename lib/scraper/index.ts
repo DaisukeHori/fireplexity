@@ -11,15 +11,19 @@ import { search, SearchResponse } from './search'
 import { scrapeUrl, scrapeUrls, ScrapeResult } from './scrape'
 
 // 並列でスクレイプを実行（Promise.allで同時実行）
+// 注意: 並列実行時はPuppeteerを無効化（ETXTBSY エラー回避のため）
 async function scrapeUrlsParallel(urls: string[], timeout: number = 15000): Promise<ScrapeResult[]> {
-  console.log(`[Scrape Parallel] Starting ${urls.length} concurrent scrapes`)
+  console.log(`[Scrape Parallel] Starting ${urls.length} concurrent scrapes (fetch only, no Puppeteer)`)
 
   const results = await Promise.all(
     urls.map(async (url) => {
       try {
+        // 並列実行時はPuppeteerを無効化
+        // 複数のPuppeteerインスタンスが同時にChromiumバイナリにアクセスすると
+        // ETXTBSY エラーが発生するため
         const result = await scrapeUrl(url, {
           timeout,
-          usePuppeteer: true,
+          usePuppeteer: false,
         })
 
         if (!result) {
