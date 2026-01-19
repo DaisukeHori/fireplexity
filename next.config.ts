@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Puppeteer/Chromium用の設定
+  experimental: {
+    serverComponentsExternalPackages: [
+      'puppeteer-core',
+      '@sparticuz/chromium',
+    ],
+  },
   images: {
     remotePatterns: [
       {
