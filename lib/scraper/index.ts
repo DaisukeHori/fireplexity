@@ -13,14 +13,15 @@ import { scrapeUrl, scrapeUrls, ScrapeResult } from './scrape'
 // 並列でスクレイプを実行
 // scrapeUrlsを使用して1つのブラウザインスタンスで複数ページを処理
 // （ETXTBSYエラーを回避しつつPuppeteerでJS対応）
-async function scrapeUrlsParallel(urls: string[], timeout: number = 15000): Promise<ScrapeResult[]> {
-  console.log(`[Scrape Parallel] Starting ${urls.length} scrapes with shared browser`)
+async function scrapeUrlsParallel(urls: string[], timeout: number = 30000): Promise<ScrapeResult[]> {
+  console.log(`[Scrape Parallel] Starting ${urls.length} scrapes with shared browser (timeout: ${timeout}ms, concurrent: 2)`)
 
   // scrapeUrlsは内部で1つのブラウザを起動し、
-  // 複数ページを並列（maxConcurrent=3）で処理する
+  // 複数ページを並列（maxConcurrent=2）で処理する
+  // Vercel Pro環境でリソースを効率的に使用するため並列数を2に制限
   const results = await scrapeUrls(urls, {
     timeout,
-    maxConcurrent: 3,
+    maxConcurrent: 2,
     usePuppeteer: true,
   })
 
@@ -97,9 +98,10 @@ export async function integratedSearch(
       // スクレイピングしてコンテンツを取得
       const urls = searchResults.web.map(r => r.url)
 
-      // 並列スクレイプ（各URLを別々のServerless関数で処理）または通常スクレイプ
+      // 並列スクレイプ（1つのブラウザで複数ページを処理）または通常スクレイプ
+      // Vercel Pro: タイムアウト30秒、同時2ページ
       const scrapedResults = useParallelScrape
-        ? await scrapeUrlsParallel(urls, 15000)
+        ? await scrapeUrlsParallel(urls, 30000)
         : await scrapeUrls(urls, { timeout: 8000 })
 
       // スクレイプ結果のログ
