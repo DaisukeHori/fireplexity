@@ -114,6 +114,8 @@ export function analyzeQuerySimple(query: string): QueryAnalysis {
     intent = 'opinion'
   } else if (lowerQuery.includes('実装') || lowerQuery.includes('コード') || lowerQuery.includes('アルゴリズム')) {
     intent = 'technical'
+  } else if (lowerQuery.includes('調査') || lowerQuery.includes('研究') || lowerQuery.includes('詳しく') || lowerQuery.includes('全て')) {
+    intent = 'comprehensive'
   }
 
   // 複雑度の判定
