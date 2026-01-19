@@ -30,6 +30,8 @@ describe('Search + Scrape Integration', () => {
 
   // Test 1: 検索とスクレイピングが統合して動作
   it('should integrate search and scraping', async () => {
+    // 50文字以上のコンテンツが必要（hasScrapedContent判定のため）
+    const longContent = 'This is a long content that exceeds fifty characters for proper scraping detection.'
     vi.mocked(search).mockResolvedValue({
       web: [
         { url: 'https://example.com', title: 'Example', description: 'Description' }
@@ -41,8 +43,8 @@ describe('Search + Scrape Integration', () => {
       {
         url: 'https://example.com',
         title: 'Example Page',
-        content: 'Full content',
-        markdown: '# Example',
+        content: longContent,
+        markdown: '# Example\n\n' + longContent,
         favicon: 'https://example.com/favicon.ico',
       }
     ])
@@ -51,11 +53,13 @@ describe('Search + Scrape Integration', () => {
 
     expect(search).toHaveBeenCalledWith('test query', expect.any(Object))
     expect(scrapeUrls).toHaveBeenCalled()
-    expect(result.web[0].markdown).toBe('# Example')
+    expect(result.web[0].markdown).toContain('# Example')
   })
 
   // Test 2: スクレイピング結果が検索結果にマージされる
   it('should merge scraped content with search results', async () => {
+    // 50文字以上のコンテンツが必要
+    const longContent = 'Full page content here that exceeds fifty characters for proper detection by the scraper.'
     vi.mocked(search).mockResolvedValue({
       web: [
         { url: 'https://test.com', title: 'Test', description: 'Short desc' }
@@ -68,8 +72,8 @@ describe('Search + Scrape Integration', () => {
         url: 'https://test.com',
         title: 'Test Full Title',
         description: 'Detailed description',
-        content: 'Full page content here',
-        markdown: '## Markdown content',
+        content: longContent,
+        markdown: '## Markdown content\n\n' + longContent,
         ogImage: 'https://test.com/og.jpg',
         siteName: 'TestSite',
       }
@@ -78,7 +82,7 @@ describe('Search + Scrape Integration', () => {
     const result = await integratedSearch('test')
 
     expect(result.web[0].title).toBe('Test Full Title')
-    expect(result.web[0].content).toBe('Full page content here')
+    expect(result.web[0].content).toBe(longContent)
     expect(result.web[0].image).toBe('https://test.com/og.jpg')
   })
 
@@ -192,6 +196,8 @@ describe('Search + Scrape Integration', () => {
 
   // Test 10: 部分的なスクレイピング成功でも動作
   it('should handle partial scraping success', async () => {
+    // 50文字以上のコンテンツが必要
+    const longContent = 'Full content that exceeds fifty characters for proper scraping detection by the integration.'
     vi.mocked(search).mockResolvedValue({
       web: [
         { url: 'https://success.com', title: 'Success' },
@@ -201,31 +207,33 @@ describe('Search + Scrape Integration', () => {
       images: [],
     })
     vi.mocked(scrapeUrls).mockResolvedValue([
-      { url: 'https://success.com', title: 'Success Full', content: 'Full content' },
+      { url: 'https://success.com', title: 'Success Full', content: longContent, markdown: longContent },
     ])
 
     const result = await integratedSearch('test')
 
     expect(result.web).toHaveLength(2)
-    expect(result.web[0].content).toBe('Full content')
+    expect(result.web[0].content).toBe(longContent)
     expect(result.web[1].content).toBeUndefined()
   })
 
   // Test 11: 日本語クエリの統合処理
   it('should handle Japanese query in integration', async () => {
+    // 50文字以上のコンテンツが必要
+    const longJapaneseContent = 'これは日本語のコンテンツです。スクレイピング判定に必要な50文字以上のテキストを含んでいます。詳細な情報がここに記載されています。'
     vi.mocked(search).mockResolvedValue({
       web: [{ url: 'https://jp.com', title: '日本語サイト', description: '説明' }],
       news: [],
       images: [],
     })
     vi.mocked(scrapeUrls).mockResolvedValue([
-      { url: 'https://jp.com', title: '日本語サイト', content: '日本語コンテンツ' }
+      { url: 'https://jp.com', title: '日本語サイト', content: longJapaneseContent, markdown: longJapaneseContent }
     ])
 
     const result = await integratedSearch('日本語検索')
 
     expect(result.web[0].title).toBe('日本語サイト')
-    expect(result.web[0].content).toBe('日本語コンテンツ')
+    expect(result.web[0].content).toBe(longJapaneseContent)
   })
 
   // Test 12: siteName がURL から抽出される
