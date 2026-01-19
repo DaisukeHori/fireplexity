@@ -10,36 +10,21 @@ export { scrapeUrl, scrapeUrls, type ScrapeResult } from './scrape'
 import { search, SearchResponse } from './search'
 import { scrapeUrl, scrapeUrls, ScrapeResult } from './scrape'
 
-// 並列でスクレイプを実行（Promise.allで同時実行）
-// 注意: 並列実行時はPuppeteerを無効化（ETXTBSY エラー回避のため）
+// 並列でスクレイプを実行
+// scrapeUrlsを使用して1つのブラウザインスタンスで複数ページを処理
+// （ETXTBSYエラーを回避しつつPuppeteerでJS対応）
 async function scrapeUrlsParallel(urls: string[], timeout: number = 15000): Promise<ScrapeResult[]> {
-  console.log(`[Scrape Parallel] Starting ${urls.length} concurrent scrapes (fetch only, no Puppeteer)`)
+  console.log(`[Scrape Parallel] Starting ${urls.length} scrapes with shared browser`)
 
-  const results = await Promise.all(
-    urls.map(async (url) => {
-      try {
-        // 並列実行時はPuppeteerを無効化
-        // 複数のPuppeteerインスタンスが同時にChromiumバイナリにアクセスすると
-        // ETXTBSY エラーが発生するため
-        const result = await scrapeUrl(url, {
-          timeout,
-          usePuppeteer: false,
-        })
+  // scrapeUrlsは内部で1つのブラウザを起動し、
+  // 複数ページを並列（maxConcurrent=3）で処理する
+  const results = await scrapeUrls(urls, {
+    timeout,
+    maxConcurrent: 3,
+    usePuppeteer: true,
+  })
 
-        if (!result) {
-          console.log(`[Scrape Parallel] No result for ${new URL(url).hostname}`)
-          return null
-        }
-
-        return result
-      } catch (error) {
-        console.warn(`[Scrape Parallel] Error for ${url}:`, (error as Error).message)
-        return null
-      }
-    })
-  )
-
-  return results.filter((r): r is ScrapeResult => r !== null)
+  return results
 }
 
 // Firecrawlのsearchエンドポイントと互換性のある統合検索関数
