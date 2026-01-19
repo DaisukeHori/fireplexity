@@ -25,6 +25,7 @@ import puppeteerCore from 'puppeteer-core'
 describe('Scrape Module', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockFetch.mockReset()
     // デフォルトでPuppeteerがnullを返すように（fetchフォールバックを使用）
     vi.mocked(puppeteerCore.launch).mockResolvedValue(null as any)
   })
@@ -54,12 +55,10 @@ describe('Scrape Module', () => {
     mockFetch.mockResolvedValue({
       ok: true,
       text: () => Promise.resolve(mockHtml),
-      headers: {
-        get: (name: string) => name === 'content-type' ? 'text/html' : null,
-      },
+      headers: { get: (name: string) => name === 'content-type' ? 'text/html' : null },
     })
 
-    const result = await scrapeUrl('https://example.com')
+    const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result?.title).toBe('テストページ')
   }, 10000)
 
@@ -77,12 +76,10 @@ describe('Scrape Module', () => {
     mockFetch.mockResolvedValue({
       ok: true,
       text: () => Promise.resolve(mockHtml),
-      headers: {
-        get: (name: string) => name === 'content-type' ? 'text/html' : null,
-      },
+      headers: { get: (name: string) => name === 'content-type' ? 'text/html' : null },
     })
 
-    const result = await scrapeUrl('https://example.com')
+    const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result?.title).toBe('OGタイトル')
   })
 
@@ -100,12 +97,10 @@ describe('Scrape Module', () => {
     mockFetch.mockResolvedValue({
       ok: true,
       text: () => Promise.resolve(mockHtml),
-      headers: {
-        get: (name: string) => name === 'content-type' ? 'text/html' : null,
-      },
+      headers: { get: (name: string) => name === 'content-type' ? 'text/html' : null },
     })
 
-    const result = await scrapeUrl('https://example.com')
+    const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result?.description).toBe('これは説明です')
   })
 
@@ -114,9 +109,10 @@ describe('Scrape Module', () => {
     mockFetch.mockResolvedValue({
       ok: false,
       status: 404,
+      headers: { get: () => null },
     })
 
-    const result = await scrapeUrl('https://example.com')
+    const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result).toBeNull()
   })
 
@@ -124,7 +120,7 @@ describe('Scrape Module', () => {
   it('should return null on network error', async () => {
     mockFetch.mockRejectedValue(new Error('Network error'))
 
-    const result = await scrapeUrl('https://example.com')
+    const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result).toBeNull()
   })
 
@@ -132,12 +128,11 @@ describe('Scrape Module', () => {
   it('should return null for non-HTML content', async () => {
     mockFetch.mockResolvedValue({
       ok: true,
-      headers: {
-        get: (name: string) => name === 'content-type' ? 'application/json' : null,
-      },
+      text: () => Promise.resolve('{"data": "json"}'),
+      headers: { get: (name: string) => name === 'content-type' ? 'application/json' : null },
     })
 
-    const result = await scrapeUrl('https://example.com/api')
+    const result = await scrapeUrl('https://example.com/api', { usePuppeteer: false })
     expect(result).toBeNull()
   })
 
@@ -156,12 +151,10 @@ describe('Scrape Module', () => {
     mockFetch.mockResolvedValue({
       ok: true,
       text: () => Promise.resolve(mockHtml),
-      headers: {
-        get: (name: string) => name === 'content-type' ? 'text/html' : null,
-      },
+      headers: { get: (name: string) => name === 'content-type' ? 'text/html' : null },
     })
 
-    const result = await scrapeUrl('https://example.com')
+    const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result?.content).toContain('メインコンテンツ')
   })
 
@@ -180,12 +173,10 @@ describe('Scrape Module', () => {
     mockFetch.mockResolvedValue({
       ok: true,
       text: () => Promise.resolve(mockHtml),
-      headers: {
-        get: (name: string) => name === 'content-type' ? 'text/html' : null,
-      },
+      headers: { get: (name: string) => name === 'content-type' ? 'text/html' : null },
     })
 
-    const result = await scrapeUrl('https://example.com')
+    const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result?.content).toContain('記事の内容')
   })
 
@@ -200,12 +191,10 @@ describe('Scrape Module', () => {
     mockFetch.mockResolvedValue({
       ok: true,
       text: () => Promise.resolve(mockHtml),
-      headers: {
-        get: (name: string) => name === 'content-type' ? 'text/html' : null,
-      },
+      headers: { get: (name: string) => name === 'content-type' ? 'text/html' : null },
     })
 
-    const results = await scrapeUrls(['https://example1.com', 'https://example2.com'])
+    const results = await scrapeUrls(['https://example1.com', 'https://example2.com'], { usePuppeteer: false })
     expect(results.length).toBe(2)
   })
 
@@ -229,12 +218,10 @@ describe('Scrape Module', () => {
     mockFetch.mockResolvedValue({
       ok: true,
       text: () => Promise.resolve(mockHtml),
-      headers: {
-        get: (name: string) => name === 'content-type' ? 'text/html' : null,
-      },
+      headers: { get: (name: string) => name === 'content-type' ? 'text/html' : null },
     })
 
-    const result = await scrapeUrl('https://example.com')
+    const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result?.favicon).toContain('favicon')
   })
 
@@ -252,12 +239,10 @@ describe('Scrape Module', () => {
     mockFetch.mockResolvedValue({
       ok: true,
       text: () => Promise.resolve(mockHtml),
-      headers: {
-        get: (name: string) => name === 'content-type' ? 'text/html' : null,
-      },
+      headers: { get: (name: string) => name === 'content-type' ? 'text/html' : null },
     })
 
-    const result = await scrapeUrl('https://example.com')
+    const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result?.ogImage).toBe('https://example.com/image.jpg')
   })
 
@@ -275,12 +260,10 @@ describe('Scrape Module', () => {
     mockFetch.mockResolvedValue({
       ok: true,
       text: () => Promise.resolve(mockHtml),
-      headers: {
-        get: (name: string) => name === 'content-type' ? 'text/html' : null,
-      },
+      headers: { get: (name: string) => name === 'content-type' ? 'text/html' : null },
     })
 
-    const result = await scrapeUrl('https://example.com')
+    const result = await scrapeUrl('https://example.com', { usePuppeteer: false })
     expect(result?.siteName).toBe('テストサイト')
   })
 })
