@@ -14,13 +14,14 @@ import { scrapeUrl, scrapeUrls, ScrapeResult } from './scrape'
 // scrapeUrlsを使用して1つのブラウザインスタンスで複数ページを処理
 // （ETXTBSYエラーを回避しつつPuppeteerでJS対応）
 async function scrapeUrlsParallel(urls: string[], timeout: number = 30000): Promise<ScrapeResult[]> {
-  console.log(`[Scrape Parallel] Starting ${urls.length} scrapes with shared browser (timeout: ${timeout}ms, concurrent: 6)`)
+  console.log(`[Scrape Parallel] Starting ${urls.length} scrapes with shared browser (timeout: ${timeout}ms, concurrent: 2)`)
 
   // scrapeUrlsは内部で1つのブラウザを起動し、
-  // 複数ページを並列（maxConcurrent=6）で処理する
+  // 複数ページを並列（maxConcurrent=2）で処理する
+  // 6並列はリソース競合でタイムアウトするため2に制限
   const results = await scrapeUrls(urls, {
     timeout,
-    maxConcurrent: 6,
+    maxConcurrent: 2,
     usePuppeteer: true,
   })
 
