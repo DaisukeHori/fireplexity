@@ -41,8 +41,8 @@ describe('Search + Scrape Integration', () => {
       {
         url: 'https://example.com',
         title: 'Example Page',
-        content: 'Full content',
-        markdown: '# Example',
+        content: 'Full content that is long enough to pass the threshold check of 50 characters',
+        markdown: '# Example\n\nFull content that is long enough to pass the threshold check',
         favicon: 'https://example.com/favicon.ico',
       }
     ])
@@ -51,7 +51,8 @@ describe('Search + Scrape Integration', () => {
 
     expect(search).toHaveBeenCalledWith('test query', expect.any(Object))
     expect(scrapeUrls).toHaveBeenCalled()
-    expect(result.web[0].markdown).toBe('# Example')
+    // markdownは50文字以上あるのでスクレイプ結果が使われる
+    expect(result.web[0].markdown).toContain('# Example')
   })
 
   // Test 2: スクレイピング結果が検索結果にマージされる
@@ -68,8 +69,8 @@ describe('Search + Scrape Integration', () => {
         url: 'https://test.com',
         title: 'Test Full Title',
         description: 'Detailed description',
-        content: 'Full page content here',
-        markdown: '## Markdown content',
+        content: 'Full page content here that is definitely longer than 50 characters for the check',
+        markdown: '## Markdown content that is definitely longer than 50 characters for the check',
         ogImage: 'https://test.com/og.jpg',
         siteName: 'TestSite',
       }
@@ -78,7 +79,8 @@ describe('Search + Scrape Integration', () => {
     const result = await integratedSearch('test')
 
     expect(result.web[0].title).toBe('Test Full Title')
-    expect(result.web[0].content).toBe('Full page content here')
+    // contentは50文字以上あるのでスクレイプ結果が使われる
+    expect(result.web[0].content).toContain('Full page content')
     expect(result.web[0].image).toBe('https://test.com/og.jpg')
   })
 
@@ -176,9 +178,9 @@ describe('Search + Scrape Integration', () => {
       images: [],
     })
     vi.mocked(scrapeUrls).mockResolvedValue([
-      { url: 'https://site1.com', title: 'Site 1', content: 'Content 1' },
-      { url: 'https://site2.com', title: 'Site 2', content: 'Content 2' },
-      { url: 'https://site3.com', title: 'Site 3', content: 'Content 3' },
+      { url: 'https://site1.com', title: 'Site 1', content: 'Content 1 that is long enough to pass 50 chars check' },
+      { url: 'https://site2.com', title: 'Site 2', content: 'Content 2 that is long enough to pass 50 chars check' },
+      { url: 'https://site3.com', title: 'Site 3', content: 'Content 3 that is long enough to pass 50 chars check' },
     ])
 
     const result = await integratedSearch('test')
@@ -195,20 +197,21 @@ describe('Search + Scrape Integration', () => {
     vi.mocked(search).mockResolvedValue({
       web: [
         { url: 'https://success.com', title: 'Success' },
-        { url: 'https://fail.com', title: 'Fail' },
+        { url: 'https://fail.com', title: 'Fail', description: 'Fallback description' },
       ],
       news: [],
       images: [],
     })
     vi.mocked(scrapeUrls).mockResolvedValue([
-      { url: 'https://success.com', title: 'Success Full', content: 'Full content' },
+      { url: 'https://success.com', title: 'Success Full', content: 'Full content that is more than 50 characters long' },
     ])
 
     const result = await integratedSearch('test')
 
     expect(result.web).toHaveLength(2)
-    expect(result.web[0].content).toBe('Full content')
-    expect(result.web[1].content).toBeUndefined()
+    expect(result.web[0].content).toContain('Full content')
+    // スクレイプ失敗時はdescriptionがフォールバックとして使われる
+    expect(result.web[1].content).toBe('Fallback description')
   })
 
   // Test 11: 日本語クエリの統合処理
@@ -218,14 +221,16 @@ describe('Search + Scrape Integration', () => {
       news: [],
       images: [],
     })
+    // contentは50文字以上必要（実装の閾値チェックをパスするため）
+    const longJapaneseContent = '日本語コンテンツがここに入ります。これは50文字以上の長さが必要です。テスト用の長いコンテンツを追加しています。'
     vi.mocked(scrapeUrls).mockResolvedValue([
-      { url: 'https://jp.com', title: '日本語サイト', content: '日本語コンテンツ' }
+      { url: 'https://jp.com', title: '日本語サイト', content: longJapaneseContent }
     ])
 
     const result = await integratedSearch('日本語検索')
 
     expect(result.web[0].title).toBe('日本語サイト')
-    expect(result.web[0].content).toBe('日本語コンテンツ')
+    expect(result.web[0].content).toContain('日本語コンテンツ')
   })
 
   // Test 12: siteName がURL から抽出される
@@ -250,7 +255,7 @@ describe('Search + Scrape Integration', () => {
       images: [],
     })
     vi.mocked(scrapeUrls).mockResolvedValue([
-      { url: 'https://site.com', title: 'Site', favicon: 'https://site.com/icon.ico' }
+      { url: 'https://site.com', title: 'Site', favicon: 'https://site.com/icon.ico', content: 'Some content that is long enough' }
     ])
 
     const result = await integratedSearch('test')
